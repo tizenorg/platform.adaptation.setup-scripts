@@ -1,0 +1,19 @@
+The documentaion can be found here:
+https://wiki.tizen.org/wiki/IVI/artem-setup-ivi
+
+Some coding style notes for the shell scripts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Do not use bashisms, install 'dash' and use it to verify that the
+   scripts are free of bashisms.
+
+2. Do not use all capitals for variables
+
+3. For shared files, prefix all symbols which are not supposed to be
+   used from outside with "__".
+
+4. Be consistent with my style. If you see that something makes no sense
+   or could be improved, change that globally.
+
+--
+Artem Bityutskiy

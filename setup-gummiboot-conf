@@ -1,0 +1,483 @@
+#!/bin/sh -euf
+
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-gummiboot-conf"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+. setup-ivi-sh-functions
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+# Common preparations for all subcommands.
+prepare()
+{
+	verbose "Boot directory is $bootdir"
+	[ -d "$bootdir" ] || \
+		fatal "boot directory path \"$bootdir\" does not exist"
+
+	# The gummiboot configuration directory
+	conf_dir="$bootdir/loader"
+	# The gummiboot configuration file
+	conf_file="$conf_dir/loader.conf"
+	# The gummiboot kernel entries directory
+	entries_dir="$bootdir/loader/entries"
+}
+
+# Get a regular expression for matching gummiboot configuration file option
+# "$1"
+get_regexp()
+{
+	local opt="$(esc_regexp "$1")"
+
+	opt="$(case_insensitive_regexp "$opt")"
+	printf "%s" "\(^[[:blank:]]*$opt[[:blank:]]\+\)\([^[:blank:]]\+\)\([[:blank:]]*$\)"
+}
+
+# Create the default gummiboot configuration file.
+create_default_conf_file()
+{
+	verbose "creating the default configuration file \"$conf_file\""
+
+	mkdir -p $verbose "$conf_dir" >&2
+	cat > "$conf_file" <<-EOF
+	timeout 0
+	default $1
+	EOF
+}
+
+# Check wheter the gummiboot configuration file exist, and if not:
+#   o create the default one if --force option was specified
+#   o fail if no --force option was specified
+check_and_create_default_conf_file()
+{
+	if [ -s "$conf_file" ]; then
+		return 0
+	fi
+
+	if [ -n "$force" ]; then
+		create_default_conf_file "$1"
+	else
+		fatal "cannot find the gummiboot configuration file" \
+		      "(\"$conf_file\") (use -f to create the default" \
+		      "one)"
+	fi
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "add" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_add_usage()
+{
+	cat <<-EOF
+Usage: $PROG add [options] <entry> <title> <kernel> <options>
+
+Add a new gummiboot entry. The mandatory arguments are:
+
+    <entry>   - name of the gummiboot entry to add
+                (<bootdir>/loader/entries/<entry>.conf)
+    <title>   - the title of the entry
+    <kernel>  - name of the kernel binary to add the entry for
+                (<bootdir>/<kernel>)
+    <options> - kernel boot options
+
+Options:
+  -f, --force  if the entry already exists - re-write it, if
+	       <bootdir>/loader/loader.conf does not exist - create one,
+	       if <bootdir>/<kernel> does not exist - do not fail
+  -h, --help   show this text and exit
+EOF
+}
+
+show_add_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_add_usage >&2
+	exit 1
+}
+
+add_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_add_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_add_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_add_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_add_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 4 ]; then
+		show_add_usage_fail "too little arguments"
+	fi
+	if [ "$#" -gt 4 ]; then
+		show_add_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local entry="$1"; shift
+	local title="$1"; shift
+	local kernel="$1"; shift
+	local options="$1"; shift
+	local kernel_path="$bootdir/$kernel"
+	local entry_path="$entries_dir/${entry}.conf"
+
+	verbose "entry is \"$entry\""
+	verbose "title is \"$title\""
+	verbose "kernel is \"$kernel\""
+	verbose "options are \"$options\""
+
+	if [ -f "$entry_path" ] && [ -z "$force" ]; then
+		fatal "gummiboot entry \"$entry_path\" already exists" \
+		      "(use -f to force re-creating it)"
+	fi
+
+	if ! [ -f "$kernel_path" ] && [ -z "$force" ]; then
+		fatal "cannot find kernel \"$kernel_path\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	# Make sure the gummiboot configuration file exists
+	check_and_create_default_conf_file "$entry"
+
+	# Find out the kernel version from its name
+	local kernel_version="$(printf "%s" "$kernel" | LC_ALL=C \
+		   sed -e 's/[^[:digit:]]\+-\([[:digit:]]\+.*\)/\1/')"
+	[ -n "$kernel_version" ] || \
+		fatal "cannot fetch kernel version from \"$kernel\""
+
+	# Create the new entry
+	mkdir -p $verbose "$entries_dir" >&2
+	cat > "$entry_path" <<-EOF
+	title $title
+	version $kernel_version
+	efi /$kernel
+	options $options
+	EOF
+
+	if [ -n "$verbose" ]; then
+		verbose "contents of \"$entry_path\":"
+		cat "$entry_path" >&2
+	fi
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "remove" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_remove_usage()
+{
+	cat <<-EOF
+Usage: $PROG remove [options] <entry>
+
+Delete gummiboot entry <entry> (<bootdir>/loader/entries/<entry>.conf).
+
+Options:
+  -f, --force  do not fail if the entry doesn't exist
+  -h, --help   show this text and exit
+EOF
+}
+
+show_remove_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_remove_usage >&2
+	exit 1
+}
+
+remove_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_remove_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_remove_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_remove_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_remove_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 1 ]; then
+		show_remove_usage_fail "too little arguments"
+	fi
+	if [ "$#" -gt 1 ]; then
+		show_remove_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local entry="$1"
+	local entry_path="$entries_dir/${entry}.conf"
+
+	if ! [ -f "$entry_path" ] && [ -z "$force" ]; then
+		fatal "gummiboot entry \"$entry_path\" doesn't exist" \
+		      "(use -f to ignore this error)"
+	fi
+
+	rm -rf $verbose "$entry_path" >&2
+	verbose "removed $entry_path"
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "default" subcommand
+# -----------------------------------------------------------------------------
+#
+
+# Get the kernel name from a gummiboot entry
+get_kernel_from_entry()
+{
+	local result=
+	local entry="$entries_dir/$1.conf"
+
+	if [ -f "$entry" ]; then
+		local regexp="$(get_regexp "efi")"
+		local result="$(LC_ALL=C sed -n -e "s/$regexp/\2/p" "$entry")"
+
+		if [ -z "$result" ]; then
+			regexp="$(get_regexp "linux")"
+			result="$(LC_ALL=C sed -n -e "s/$regexp/\2/p" "$entry")"
+
+			[ -n "$result" ] || return 0
+		fi
+	fi
+
+	printf "%s" "${result##*/}"
+}
+
+show_default_usage()
+{
+	cat <<-EOF
+Usage: $PROG default [options] <entry>
+
+Set the default boot kernel to <entry>, which is the gummiboot entry name to
+become the default (without the ".conf" suffix, like in
+<bootdir>/loader/entries/<entry>.conf). If <entry> is omited, this command
+prints the currently default entry name.
+
+Options:
+  -f, --force  if <bootdir>/loader/loader.conf does not exist - create the
+               default one, if <bootdir>/loader/entries/<entry>.conf does not
+	       exist - do not fail
+  -h, --help   show this text and exit
+EOF
+}
+
+show_default_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_default_usage >&2
+	exit 1
+}
+
+default_subcommand()
+{
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_default_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_default_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_default_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -gt 1 ]; then
+		show_default_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local entry="${1:-}";
+
+	# Make sure the gummiboot configuration file exists
+	check_and_create_default_conf_file "$entry"
+
+	# Find the current default entry
+	local regexp="$(get_regexp "default")"
+	local default_entry="$(LC_ALL=C sed -n -e "s/$regexp/\2/p" "$conf_file")"
+
+	if [ -z "$entry" ]; then
+		printf "%s\n" "entry: $default_entry"
+		printf "%s\n" "kernel: $(get_kernel_from_entry "$default_entry")"
+		return 0
+	fi
+
+	local entry_path="$entries_dir/${entry}.conf"
+	if ! [ -f "$entry_path" ] && [ -z "$force" ]; then
+		fatal "cannot find the gummiboot entry \"$entry_path\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	if [ -z "$default_entry" ]; then
+		verbose "no default entry found, adding \"$entry\""
+		printf "%s" "default $entry" >> "$conf_file"
+		return 0
+	fi
+
+	[ "$(printf "%s\n" "$default_entry" | wc -l)" -eq "1" ] || \
+		fatal "more than one default entry in \"$conf_file\""
+
+	# Escape special sed characters in "$entry" and replace the old default
+	# entry with the new one
+	local entry_esc="$(esc_sed_replacement "$entry")"
+	LC_ALL=C sed -i -e "s/$regexp/\1$entry_esc\3/" "$conf_file"
+
+	verbose "set the default boot kernel to \"$entry"\"
+}
+
+#
+# -----------------------------------------------------------------------------
+#
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options] <subcommand> [options] <arguments>
+
+This program changes the gummiboot bootloader configuration. Supported
+subcommands are:
+   add     - add a gummiboot entry for a kernel
+   remove  - remove a gummiboot entry
+   default - get or set the default gummiboot entry
+
+Run "$PROG <subcommand>" to see subcommand-specific help.
+
+Options:
+  -b, --bootdir  path to the boot directory (default is "/boot")
+  --version      show the program version and exit
+  -v, --verbose  be verbose
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+bootdir="/boot"
+verbose=
+while [ -n "${1:-""}" ] && [ -z "${1##-*}" ]; do
+	case "$1" in
+	-b|--bootdir)
+		shift
+		# If there is no argument or it starts with "-", complain
+		if [ -z "${1:-""}" ] || [ -z "${1##-*}" ]; then
+			fatal "--bootdir requires an argument"
+		fi
+		bootdir="$1"
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-v|--verbose)
+		verbose="-v"
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+# Parse subcommands
+
+if [ "$#" -eq 0 ]; then
+	show_usage
+	exit 0
+fi
+
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+add)
+	add_subcommand "$@"
+	break
+	;;
+remove)
+	remove_subcommand "$@"
+	break
+	;;
+default)
+	default_subcommand "$@"
+	break
+	;;
+*) show_usage_fail "unrecognized subcommand \"$subcommand\""
+	;;
+esac

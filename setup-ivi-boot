@@ -1,0 +1,174 @@
+#!/bin/sh -euf
+
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-ivi-boot"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+. setup-ivi-sh-functions
+. installerfw-sh-functions
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+install_gummiboot()
+{
+	verbose "installing gummiboot to $bootdir"
+
+	local installdir="$bootdir/EFI/boot"
+	local gummiboot_path="$(installerfw_mnt_prefix "/usr/lib/gummiboot")"
+
+	# Make sure gummiboot is installed in the system
+	if ! ([ -f $gummiboot_path/gummibootia32.efi ] || \
+	      [ -f $gummiboot_path/gummibootx64.efi ]); then
+		fatal "\"$gummiboot_path/gummiboot*.efi\" files not found!"
+	fi
+
+	# Install gummiboot
+	mkdir -p $verbose "$installdir" >&2
+	[ -f "$gummiboot_path/gummibootia32.efi" ] && \
+		cp $verbose "$gummiboot_path/gummibootia32.efi" \
+		            "$installdir/bootia32.efi" >&2
+	[ -f "$gummiboot_path/gummibootx64.efi" ] && \
+		cp $verbose "$gummiboot_path/gummibootx64.efi" \
+		            "$installdir/bootx64.efi"
+
+	verbose "installed gummiboot to $bootdir"
+}
+
+install_extlinux()
+{
+	verbose "installing extlinux to $bootdir"
+
+	local installdir="$bootdir/extlinux"
+	local extlinux="extlinux"
+
+	# Check if extlinux is available
+        if ! command -v "extlinux" >/dev/null 2>&1; then
+		extlinux="$(installerfw_mnt_prefix "/sbin/extlinux")"
+		[ -f "$extlinux" ] ||
+			fatal "cannot find \"$extlinux\""
+	fi
+
+	# Get device node name for the boot partition
+	local boot_devnode
+	installerfw_get_part_info "/boot" "DEVNODE_NOW" "boot_devnode"
+	[ -n "$boot_devnode" ] || \
+		fatal "cannot find device node of the boot disk, probably" \
+		      "INSTALLERFW_PARTx_DEVNODE_NOW environment" \
+		      "variable is not defined"
+
+	# Install extlinux
+	mkdir -p $verbose "$installdir" >&2
+	"$extlinux" --device "$boot_devnode" -i "$installdir" || \
+		fatal "cannot install extlinux to \"$installdir\"" \
+		      "(requires extlinux version 5 or greater)"
+
+
+	# Get device node name for the boot disk
+	local mbr_devnode
+	installerfw_get_part_info "/boot" "DISK_DEVNODE_NOW" "mbr_devnode"
+	[ -n "$mbr_devnode" ] || \
+		fatal "cannot find device node of the boot disk, probably" \
+		      "INSTALLERFW_PARTx_DISK_DEVNODE_NOW environment" \
+		      "variable is not defined"
+
+	# Install the MBR part of extlinux
+	local mbr_bin="$(installerfw_mnt_prefix "/usr/share/syslinux/gptmbr.bin")"
+	dd if="$mbr_bin" of="$mbr_devnode" count=1 || \
+		fatal "cannot install MBR: dd if=$mbr_bin of=$mbr_devnode"
+
+	verbose "installed extlinux to $bootdir"
+}
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options]
+
+Install the EFI bootloader (gummiboot) and create the initial configuration
+for all the currently installed kernels. This program depends on various
+"installer framework" variables.
+
+Options:
+  -v, --verbose  be verbose
+  --version      show the program version and exit
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+# Parse the options
+tmp=`getopt -n $PROG -o v,h --long verbose,version,help -- "$@"` ||
+	show_usage_fail "cannot parse command-line options"
+eval set -- "$tmp"
+
+verbose=
+while true; do
+	case "$1" in
+	-v|--verbose)
+		verbose="-v"
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+bootdir="$(installerfw_mnt_prefix "/boot")"
+
+# Save the installer framework variables
+installerfw_file="$(installerfw_get_env_file_name)"
+if [ -f "$installerfw_file" ]; then
+	installerfw_restore_env
+else
+	installerfw_save_env
+fi
+
+# Get OS name
+get_os_name "os_name"
+
+if installerfw_is_efi_boot_system; then
+	install_gummiboot
+else
+	install_extlinux
+fi
+
+# Create bootloader entries for each kernel
+kernels="$(ls -1 "$bootdir" | LC_ALL=C grep "^vmlinuz-" | sort -r)"
+
+[ -n "$kernels" ] || \
+	fatal "no kernels (vmlinuz-*) found in \"$bootdir\""
+
+printf "%s\n" "$kernels" | while IFS= read -r kernel; do
+	setup-ivi-bootloader-conf $verbose add --force "$kernel"
+done
+
+# Set the default kernel to the kernel with highest version
+newest_kernel="$(get_newest_kernel "$bootdir")"
+setup-ivi-bootloader-conf $verbose default "$newest_kernel"

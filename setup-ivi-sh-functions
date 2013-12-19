@@ -1,0 +1,118 @@
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+# This file contains common functions for setup-ivi-* programs
+
+# Own name
+__PROG="$PROG:-setup-ivi-sh-functions"
+
+fatal()
+{
+	IFS= printf "%s\n" "$PROG: error: $*" 1>&2
+	exit 1
+}
+
+verbose()
+{
+	if [ -n "$verbose" ]; then
+		IFS= printf "%s\n" "$PROG (verbose): $*" >&2
+	fi
+}
+
+# Finds out the OS name and sets the "$1" variable to the OS name upon exit.
+get_os_name()
+{
+	local osrelease_path="$(installerfw_mnt_prefix "$__osrelease_file")"
+
+	# Make sure the OS release information file is present
+	[ -f "$osrelease_path" ] ||
+		fatal "the \"$osrelease_path\" file not found"
+
+	# Get the OS name
+	local __os_name="$(LC_ALL=C sed -n -e 's/^PRETTY_NAME="\(.*\)"$/\1/p' "$osrelease_path")"
+	[ -n "$__os_name" ] || \
+		fatal "cannot find \"PRETTY_NAME\" variable in \"$osrelease_path\""
+
+	if [ "${1:-%}" != "%" ]; then
+		eval $1="\$__os_name"
+		verbose "get_os_name(): OS name: $1=$__os_name"
+	fi
+}
+
+# Escape a string which is going to be used in a regexp. Shuould work for both
+# sed and grep regexps.
+esc_regexp()
+{
+	local regexp="$1";
+
+	printf "%s" "$regexp" | LC_ALL=C sed -e 's/[]\/()$*.^|[]/\\&/g'
+}
+
+# Escape a string which is going to be used at the "replacement" part of the
+# sed "substitute" command (as in s/regexp/replacement/flags')
+# Usage: esc_sed_replacement <replacement>
+esc_sed_replacement()
+{
+	local replacement="$1";
+
+	printf "%s" "$replacement" | LC_ALL=C sed -e "s/[\&/]/\\&/g"
+}
+
+# Turn strings "abc" into "[Aa][Bb][Cc]" for case-insensitive matching in
+# regular expressions.
+case_insensitive_regexp()
+{
+	local regexp="$1"
+
+	printf "%s" "$regexp" | LC_ALL=C sed -e 's/[[:alpha:]]/[\U&\l&]/g'
+}
+
+# Check if dash is available and we are not running in dash
+can_switch_to_dash()
+{
+        if command -v "dash" >/dev/null 2>&1; then
+		if [ -n "${BASH_VERSION:-}" ]; then
+			return 0
+		fi
+	fi
+
+	return 1
+}
+
+# Get the newest kernel, "$1" is the directory to search at, "$2" is an
+# optional argument, and if it present, it tells which kernel should not be
+# returned by this function.
+get_newest_kernel()
+{
+	local bootdir="$1"; shift
+
+	# Generate the list of installed kernels
+	local kernels="$(ls -1 "$bootdir" | LC_ALL=C grep "^vmlinuz-" | sort -r)"
+
+	# Exclude the unwanted kernel, if any
+	if [ -n "${1:-}" ]; then
+		local kernel="$(esc_regexp "$1")"
+		kernels="$(printf "%s" "$kernels" | LC_ALL=C grep -v "^$kernel$")"
+	fi
+
+	printf "%s" "$kernels" | head -n1
+}
+
+# Remove all empty lines from the end of file, including lines which contain
+# nothing but blanks (tabs and spaces).
+remove_trailing_empty_lines()
+{
+	local file="$1"
+
+	LC_ALL=C sed -i -n -e '
+	    :l                   # sed jump lable named "l"
+	    /^[[:blank:]\n]*$/ { # matches multiple blank lines with any
+	                         # number of spaces or tabs
+	         $d              # if these are last lines, delete them
+	         N;              # otherwise append to the current pattern buf
+		 bl              # and start over
+	    }
+	    /^[[:blank:]]*$/!p   # print the pattern buffer for non-blank lines
+	    ' "$file"
+}

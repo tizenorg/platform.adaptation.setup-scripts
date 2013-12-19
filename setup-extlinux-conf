@@ -1,0 +1,517 @@
+#!/bin/sh -euf
+
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-extlinux-conf"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+. setup-ivi-sh-functions
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+# Common preparations for all subcommands.
+prepare()
+{
+	verbose "Boot directory is $bootdir"
+	[ -d "$bootdir" ] || \
+		fatal "boot directory path \"$bootdir\" does not exist"
+
+	# The extlinux configuration directory
+	conf_dir="$bootdir/extlinux"
+	# The extlinux configuration file
+	conf_file="$conf_dir/extlinux.conf"
+}
+
+# Create the default extlinux configuration file.
+create_default_conf_file()
+{
+	verbose "creating the default configuration file \"$conf_file\""
+
+	mkdir -p $verbose "$conf_dir" >&2
+	cat > "$conf_file" <<-EOF
+	ui vesamenu.c32
+	prompt 0
+	timeout 1
+	default $1
+	EOF
+}
+
+# Check wheter the extlinux configuration file exist and if not:
+#   o create the default one if --force option was specified
+#   o fail if no --force option was specified
+check_and_create_default_conf_file()
+{
+	if [ -s "$conf_file" ]; then
+		return 0
+	fi
+
+	if [ -n "$force" ]; then
+		create_default_conf_file "$1"
+	else
+		fatal "cannot find the extlinux configuration file" \
+		      "(\"$conf_file\") (use -f to force creating the" \
+		      "default one)"
+	fi
+}
+
+# Get a regular expression for matching extlinux configuration file option "$1"
+get_regexp()
+{
+	local opt="$(esc_regexp "$1")"
+
+	opt="$(case_insensitive_regexp "$opt")"
+	printf "%s" "\(^[[:blank:]]*$opt[[:blank:]]\+\)\([^[:blank:]]\+\)\([[:blank:]]*$\)"
+}
+
+# Return a regular expression for matching label with name "$1".
+label_regexp()
+{
+	local opt="$(case_insensitive_regexp "label")"
+	local label="$(esc_regexp "$1")"
+
+	printf "%s" "\(^[[:blank:]]*$opt[[:blank:]]\+\)\($label\)\([[:blank:]]*$\)"
+}
+
+remove_label()
+{
+	local label="$1"
+	local l_regexp="$(label_regexp "$label")"
+	local anyl_regexp="$(get_regexp "label")"
+
+	LC_ALL=C sed -i -n -e "/$l_regexp/ { # mathes our label line
+	                :l n;                # get the next line
+			/$l_regexp/bl        # same label again, keep skipping
+			/$anyl_regexp/!bl    # a different label, stop skipping
+	            }
+	            /$l_regexp/!p            # print all other lines
+		    " "$conf_file"
+
+	remove_trailing_empty_lines "$conf_file"
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "add" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_add_usage()
+{
+	cat <<-EOF
+Usage: $PROG add [options] <label> <title> <kernel> <options>
+
+Add a new extlinux boot menu entry. The mandatory arguments are:
+
+    <label>   - a unique name of the boot menu entry to add, the entry will be
+                further refurred by the label
+    <title>   - the boot menu entry title
+    <kernel>  - name of the kernel binary corresponding to the entry
+    <options> - kernel boot options
+
+Options:
+  -f, --force  if <label> already exists - re-create it, if
+               <bootdir>/extlinux/extlinux.conf does not exist - create it, if
+	       <bootdir>/<kernel> does not exist - do not fail
+  -h, --help   show this text and exit
+EOF
+}
+
+show_add_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_add_usage >&2
+	exit 1
+}
+
+add_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_add_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_add_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_add_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_add_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 4 ]; then
+		show_add_usage_fail "too little arguments"
+	fi
+	if [ "$#" -gt 4 ]; then
+		show_add_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local label="$1"; shift
+	local title="$1"; shift
+	local kernel="$1"; shift
+	local options="$1"; shift
+	local kernel_path="$bootdir/$kernel"
+
+	verbose "label is \"$label\""
+	verbose "title is \"$title\""
+	verbose "kernel is \"$kernel\""
+	verbose "options are \"$options\""
+
+	if ! [ -f "$kernel_path" ] && [ -z "$force" ]; then
+		fatal "cannot find kernel \"$kernel_path\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	# Make sure the extlinux configuration file exists
+	check_and_create_default_conf_file "$label"
+
+	if LC_ALL=C grep -q -e "$(label_regexp "$label")" "$conf_file" && \
+	   [ -z "$force" ]; then
+		fatal "extlinux boot menu label \"$label\" already exists" \
+		      "(use -f to force re-creating it)"
+	fi
+
+	# Find out the kernel version from its name
+	local kernel_version="$(printf "%s" "$kernel" | LC_ALL=C \
+		   sed -e 's/[^[:digit:]]\+-\([[:digit:]]\+.*\)/\1/')"
+	[ -n "$kernel_version" ] || \
+		fatal "cannot fetch kernel version from \"$kernel\""
+
+	# Remove the label if it exists, since we are going to add a new one
+	remove_label "$label"
+
+	local block="label $label
+	menu label $title ($kernel_version)
+	linux /$kernel
+	append $options"
+
+	printf "\n%s\n" "$block" >> "$conf_file"
+
+	if [ -n "$verbose" ]; then
+		verbose "Added the following to \"$conf_file\":"
+		printf "%s\n" "$block" >&2
+	fi
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "remove" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_remove_usage()
+{
+	cat <<-EOF
+Usage: $PROG remove [options] <label>
+
+Delete extlinux boot entry which has label <label>.
+
+Options:
+  -f, --force  do not fail if the entry doesn't exist
+  -h, --help   show this text and exit
+EOF
+}
+
+show_remove_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_remove_usage >&2
+	exit 1
+}
+
+remove_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_remove_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_remove_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_remove_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_remove_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 1 ]; then
+		show_remove_usage_fail "too little arguments"
+	fi
+	if [ "$#" -gt 1 ]; then
+		show_remove_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local label="$1"
+
+	if ! LC_ALL=C grep -q -e "$(label_regexp "$label")" "$conf_file" && \
+	   [ -z "$force" ]; then
+		fatal "cannot find label \"$label\" in \"$conf_file\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	remove_label "$label"
+	verbose "removed $label"
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "default" subcommand
+# -----------------------------------------------------------------------------
+#
+
+# Get the kernel binary name by its extlinux.conf label name
+get_kernel_by_label()
+{
+	local label="$1"
+	local l_regexp="$(label_regexp "$label")"  # Regexp for our label
+	local anyl_regexp="$(get_regexp "label")"  # Regexp for any label
+	local linux_regexp="$(get_regexp "linux")"
+	local kernel_regexp="$(get_regexp "kernel")"
+	local result
+
+	[ -z "$label" ] && return 0
+
+	result="$(LC_ALL=C sed -n -e "/$l_regexp/ {
+		:l n;
+		/$linux_regexp/ { s/$linux_regexp/\2/p }
+		/$kernel_regexp/ { s/$kernel_regexp/\2/p }
+		/$anyl_regexp/!bl # Loop till the next label
+	}" "$conf_file")"
+
+	printf "%s" "${result##*/}"
+}
+
+show_default_usage()
+{
+	cat <<-EOF
+Usage: $PROG default [options] <label>
+
+Set the default boot kernel to be the kernel which is marked with label <label>
+the extlinux configuration file. If <label> is omited, this command prints the
+currently default entry name.
+
+Options:
+  -f, --force  <bootdir>/extlinux/extlinux.conf does not exist - create it, if
+               <label> does not exist - do not fail
+  -h, --help   show this text and exit
+EOF
+}
+
+show_default_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_default_usage >&2
+	exit 1
+}
+
+default_subcommand()
+{
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_default_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_default_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_default_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -gt 1 ]; then
+		show_default_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local label="${1:-}";
+
+	# Make sure the extlinux configuration file exists
+	check_and_create_default_conf_file "$label"
+
+	# Find the current default label
+	local regexp="$(get_regexp "default")"
+	local default_label="$(LC_ALL=C sed -n -e "s/$regexp/\2/p" "$conf_file")"
+
+	if [ -z "$label" ]; then
+		printf "%s\n" "label: $default_label"
+		printf "%s\n" "kernel: $(get_kernel_by_label "$default_label")"
+		return 0
+	fi
+
+	local l_regexp="$(label_regexp "$label")"
+	local labels="$(LC_ALL=C grep -e "$l_regexp" "$conf_file" | wc -l)"
+
+	if [ "$labels" -eq "0" ] && [ -z "$force" ]; then
+		fatal "cannot find label \"$label\" in \"$conf_file\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	if [ "$labels" -gt "1" ]; then
+		fatal "more than one labels \"$label\" in \"$conf_file\""
+	fi
+
+	if [ -z "$default_label" ]; then
+		verbose "no default label found, adding \"$label\""
+
+		local def="$(esc_sed_replacement "default $label")"
+		local anyl_regexp="$(get_regexp "label")"
+
+		LC_ALL=C sed -i -e "
+			$                 { s/.*/&\n$def/; q }
+			/^[[:blank:]]*$/  { s/.*/$def\n&/; q }
+			/$(anyl_regexp)/  { s/.*/$def\n&/; q }
+			" "$conf_file"
+		return 0
+	fi
+
+	# Escape special sed characters in "$entry" and replace the old default
+	# entry with the new one
+	local esc_label="$(esc_sed_replacement "$label")"
+	LC_ALL=C sed -i -e "s/$regexp/\1$esc_label\3/" "$conf_file"
+	verbose "set the default boot kernel to \"$label"\"
+}
+
+#
+# -----------------------------------------------------------------------------
+#
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options] <subcommand> [options] <arguments>
+
+This program changes the extlinux bootloader configuration. Supported
+subcommands are:
+   add     - add an extlinux boot menu entry for a kernel
+   remove  - remove an extlinux boot menu entry
+   default - get or set the default extlinux boot menu entry
+
+Run "$PROG <subcommand>" to see subcommand-specific help.
+
+Options:
+  -b, --bootdir  path to the boot directory (default is "/boot")
+  --version      show the program version and exit
+  -v, --verbose  be verbose
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+bootdir="/boot"
+verbose=
+while [ -n "${1:-""}" ] && [ -z "${1##-*}" ]; do
+	case "$1" in
+	-b|--bootdir)
+		shift
+		# If there is no argument or it starts with "-", complain
+		if [ -z "${1:-""}" ] || [ -z "${1##-*}" ]; then
+			fatal "--bootdir requires an argument"
+		fi
+		bootdir="$1"
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-v|--verbose)
+		verbose="-v"
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+# Parse subcommands
+
+if [ "$#" -eq 0 ]; then
+	show_usage
+	exit 0
+fi
+
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+add)
+	add_subcommand "$@"
+	break
+	;;
+remove)
+	remove_subcommand "$@"
+	break
+	;;
+default)
+	default_subcommand "$@"
+	break
+	;;
+*) show_usage_fail "unrecognized subcommand \"$subcommand\""
+	;;
+esac

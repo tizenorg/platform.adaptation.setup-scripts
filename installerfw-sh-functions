@@ -1,0 +1,179 @@
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+# This file contains common functions for setup-ivi-* programs
+
+# Own name
+__PROG="${PROG:-installerfw-sh-functions}"
+
+# Installer framework variables are saved in this file
+__installerfw_file="/etc/installerfw-environment"
+# The OS release information file
+__osrelease_file="/etc/os-release"
+# EFI System Partition PARTUUID
+__esp_ptypeid="C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+
+# Mount prefix is assumed to be "/" if it is not defined
+[ -n "${INSTALLERFW_MOUNT_PREFIX:-}" ] || export INSTALLERFW_MOUNT_PREFIX="/"
+
+__fatal()
+{
+	IFS= printf "%s\n" "$__PROG: error: $*" 1>&2
+	exit 1
+}
+
+__verbose()
+{
+	if [ -n "$verbose" ]; then
+		IFS= printf "%s\n" "$__PROG (verbose): $*" >&2
+	fi
+}
+
+# Verify that an environment variable is defined
+__verify_defined()
+{
+	local variable="$1"
+
+	printenv "$variable" > /dev/null ||
+		__fatal "cannot find required environment variable" \
+		        "\"$variable\""
+}
+
+# Add the INSTALLERFW_MOUNT_PREFIX prefix to a path. This does not really
+# require a separate function unless we want to be fancy and avoid double or
+# tripple "/" in the resulting path.
+installerfw_mnt_prefix()
+{
+	__verify_defined "INSTALLERFW_MOUNT_PREFIX"
+
+	local path="$INSTALLERFW_MOUNT_PREFIX/$1"
+
+	printf "%s" "$path" | LC_ALL=C sed -e 's/\/\+/\//g'
+}
+
+# Return full path to the file which contains the installer framework
+# environment variables.
+installerfw_get_env_file_name()
+{
+	printf "%s" "$(installerfw_mnt_prefix "$__installerfw_file")"
+}
+
+# Save installer framework environment variables. Note, all the variables can
+# be split on 2 classes - those which make sense only inside the particular
+# installer and those which make sense in the OS environment. We only save the
+# latter.
+installerfw_save_env()
+{
+	local file="$(installerfw_get_env_file_name)"
+	local opts="\
+-e '^INSTALLERFW_KERNEL_OPTS=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_ALIGN=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_BOOTFLAG=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_FSOPTS=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_FSTYPE=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_LABEL=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_MOUNTPOINT=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_PARTUUID=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_SIZE=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_TYPE_ID=' \
+-e '^INSTALLERFW_PART[[:digit:]]\+_UUID=' \
+-e '^INSTALLERFW_PART_COUNT=' \
+-e '^INSTALLERFW_PTABLE_FORMAT=' \
+"
+
+	local variables="$(printenv | eval "LC_ALL=C grep $opts")"
+
+	if [ "$(printf "%s" "$variables" | wc -l)" -eq "0" ]; then
+		__fatal "no installer framework environment variables" \
+		        "found, nothing to save"
+	fi
+
+	printf "%s" "$variables" | LC_ALL=C sed -n -e \
+		"s/\(^INSTALLERFW_[^=]\+\)=\(.*\)/\1=\"\2\"/p" > "$file"
+	__verbose "installerfw_save_env(): saved installer framework" \
+	          "environment in \"$file\""
+}
+
+# Restore installer framework environment variables.
+installerfw_restore_env()
+{
+	local file="$(installerfw_get_env_file_name)"
+
+	[ -f "$file" ] || \
+		__fatal "installerfw_restore_env(): can't restore the" \
+		        "installer framework environment: can't find" \
+			"\"$file\""
+
+	while IFS= read -r line; do
+		eval "export $line"
+	done < "$file"
+
+	__verbose "installerfw_restore_env(): restored installer" \
+		  "framework environment from \"$file\""
+}
+
+# Check if the system is an EFI boot system by checking whether the boot
+# partition is a FAT 32 partition with the magic EFI type GUID.
+installerfw_is_efi_boot_system()
+{
+	installerfw_get_part_info "/boot" "TYPE_ID" "__ptypeid"
+
+	# Make sure the UUID uses capital letters
+	__ptypeid="$(printf "%s" "$__ptypeid" | tr "[:lower:]" "[:upper:]")"
+
+	__verify_defined "INSTALLERFW_PTABLE_FORMAT"
+
+	if [ "${INSTALLERFW_PTABLE_FORMAT:-}" = "gpt" ] && \
+	   [ "$__ptypeid" = "$__esp_ptypeid" ]; then
+		__verbose "installerfw_is_efi_boot_system(): /boot is" \
+		          "the EFI system partition (type is" "\"$__ptypeid\")"
+		return 0
+	else
+		__verbose "installerfw_is_efi_boot_system(): no EFI" \
+		          "system partition found (type is" "\"$__ptypeid\")"
+		return 1
+	fi
+}
+
+# Get a piece of installer framework data for a partition. At the moment the
+# partition is specified by it's mount point (in $1), but this can be extended
+# to also accept the partition number, if needed.
+#
+# The second parameter ($2) is the a partial installer framework variable name
+# which should be returned. For example, "PARTUUID" would correspond to
+# "INSTALLERFW_PARTx_PARTUUID", and so on.
+#
+# The third parameter ($3) is name of the variable to store the result at. If
+# the requested installer framework variable is undefined or null, the shell
+# variable with name stored in $3 will have null value upon exit.
+installerfw_get_part_info()
+{
+	local __mntpoint="$1"; shift
+	local __var="$1"; shift
+	local __res_var="$1"; shift
+	local __pnum="0"
+
+	__verify_defined "INSTALLERFW_PART_COUNT"
+
+	while [ "$__pnum" -lt "$INSTALLERFW_PART_COUNT" ]; do
+		local __mp="INSTALLERFW_PART${__pnum}_MOUNTPOINT"
+		__verify_defined "$__mp"
+
+		__mp="$(eval printf "%s" "\"\$$__mp\"")"
+
+		[ "$__mp" != "$__mntpoint" ] || break
+
+		__pnum="$((__pnum+1))"
+	done
+
+	local installerfw_var="INSTALLERFW_PART${__pnum}_${__var}"
+
+	local __value=
+	if printenv "$installerfw_var" > /dev/null; then
+		__value="$(eval printf "%s" "\"\$$installerfw_var\"")"
+	fi
+
+	__verbose "installerfw_get_part_info(): $__res_var=$__value"
+	eval "$__res_var"="\"\$__value\""
+}

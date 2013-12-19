@@ -1,0 +1,35 @@
+# This file can be used for testing setup-ivi-* scripts. This file corresponds
+# to an EFI boot image (boot partition has the EFS type GUID). Do the following
+# to start debugging
+#
+# mkdir /tmp/boot
+# touch /tmp/boot/vmlinuz-3.12-x86-ivi
+# mkdir -p /tmp/usr/lib/gummiboot
+# touch /tmp/usr/lib/gummiboot/gummibootia32.efi
+# mkdir /tmp/etc
+# echo 'PRETTY_NAME="My test OS"' > /tmp/etc/os-release
+
+export INSTALLERFW_MOUNT_PREFIX="/tmp"
+export INSTALLERFW_KERNEL_OPTS="rootwait rootfstype=ext4 quiet"
+export INSTALLERFW_PART0_ALIGN=1024
+export INSTALLERFW_PART0_BOOTFLAG=True
+export INSTALLERFW_PART0_FSOPTS=defaults,noatime
+export INSTALLERFW_PART0_FSTYPE=vfat
+export INSTALLERFW_PART0_LABEL=boot
+export INSTALLERFW_PART0_MOUNTPOINT=/boot
+export INSTALLERFW_PART0_PARTUUID=AC5A15ED-743A-42DC-88DD-97837EB802FD
+export INSTALLERFW_PART0_SIZE=64
+export INSTALLERFW_PART0_TYPE_ID=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+export INSTALLERFW_PART0_UUID=89A6-BDC8
+export INSTALLERFW_PART1_ALIGN=1024
+export INSTALLERFW_PART1_BOOTFLAG=False
+export INSTALLERFW_PART1_FSOPTS=defaults,noatime
+export INSTALLERFW_PART1_FSTYPE=ext4
+export INSTALLERFW_PART1_LABEL=platform
+export INSTALLERFW_PART1_MOUNTPOINT=/
+export INSTALLERFW_PART1_PARTUUID=7D723C77-2EB1-4AD6-B585-54D8E243CD87
+export INSTALLERFW_PART1_SIZE=3748
+export INSTALLERFW_PART1_TYPE_ID=
+export INSTALLERFW_PART1_UUID=a9bf2448-17b6-4113-99d7-061435a0a8a6
+export INSTALLERFW_PART_COUNT=2
+export INSTALLERFW_PTABLE_FORMAT=gpt

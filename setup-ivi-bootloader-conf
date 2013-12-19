@@ -1,0 +1,415 @@
+#!/bin/sh -euf
+
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-ivi-bootloader-conf"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+. setup-ivi-sh-functions
+. installerfw-sh-functions
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+# Preparation stuff common for all subcommands
+prepare()
+{
+	# Get the installer framework environment
+	installerfw_restore_env
+
+	bootdir="$(installerfw_mnt_prefix "/boot")"
+
+	if installerfw_is_efi_boot_system; then
+		boot="gummiboot"
+	else
+		boot="extlinux"
+	fi
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "add" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_add_usage()
+{
+	cat <<-EOF
+Usage: $PROG add [options] <kernel>
+
+Add bootloader entries for kernel <kernel>.
+
+Options:
+  -f, --force  if bootloader entries for <kernel> already exist in bootloader's
+               config file(s) - re-write them, if <kernel> does not exist - do
+	       not fail
+  -h, --help   show this text and exit
+EOF
+}
+
+show_add_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_add_usage >&2
+	exit 1
+}
+
+add_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_add_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_add_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_add_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_add_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 1 ]; then
+		show_add_usage_fail "please, specify the kernel"
+	fi
+	if [ "$#" -gt 1 ]; then
+		show_add_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local kernel="$1"
+	local kernel_path="$bootdir/$kernel"
+
+	if ! [ -f "$kernel_path" ] && [ -z "$force" ]; then
+		fatal "cannot find kernel \"$kernel_path\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	# Get root partition PARTUUID
+	installerfw_get_part_info "/" "PARTUUID" "root_partuuid"
+	[ -n "$root_partuuid" ] || \
+		fatal "cannot find PARTUUID of the root partition"
+
+	# Get kernel options
+	local options="${INSTALLERFW_KERNEL_OPTS:-} root=PARTUUID=$root_partuuid"
+
+	# Get OS name
+	local os_name=
+	get_os_name "os_name"
+
+	# Add the bootloader entry
+	setup-$boot-conf $verbose --bootdir "$bootdir" add $force \
+		"$kernel" "$os_name" "$kernel" "$options"
+
+	# If there is the "quiet" option, create a non-quiet configuration
+	local dbgopts="$(printf "%s" "$options" | LC_ALL=C \
+				sed -e "s/[[:blank:]]\+quiet[[:blank:]]\+/ /
+					s/^quiet[[:blank:]]\+//
+					s/[[:blank:]]\+quiet$//
+					s/^quiet$//")"
+
+	dbgopts="$dbgopts ignore_loglevel initcall_debug log_buf_len=2M"
+
+	setup-$boot-conf $verbose --bootdir "$bootdir" add \
+		$force "$kernel-debug" "$os_name (debug)" \
+		"$kernel" "$dbgopts"
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "remove" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_remove_usage()
+{
+	cat <<-EOF
+Usage: $PROG remove [options] <kernel>
+
+Delete bootloader entries for kernel <kernel> (only those which were previously
+created with "$PROG add").
+
+Options:
+  -f, --force  do not fail if <kernel> does not have corresponding bootloader
+               entries
+  -h, --help   show this text and exit
+EOF
+}
+
+show_remove_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_remove_usage >&2
+	exit 1
+}
+
+remove_subcommand()
+{
+	if [ "$#" -eq 0  ]; then
+		show_remove_usage
+		exit 0
+	fi
+
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_remove_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_remove_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_remove_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -lt 1 ]; then
+		show_add_usage_fail "please, specify the kernel"
+	fi
+	if [ "$#" -gt 1 ]; then
+		show_remove_usage_fail "too many arguments: \"$1\""
+	fi
+
+	local kernel="$1"
+
+	prepare
+
+	# Get the current default entry
+	local default="$(setup-$boot-conf $verbose --bootdir "$bootdir" \
+	                                      default $force)"
+	[ $? -eq 0 ] || \
+		fatal "cannot get the default kernel, setup-$boot-conf failed"
+
+	local default_kernel="$(printf "%s" "$default" | LC_ALL=C \
+	                 sed -n -e 's/^kernel: \(.\+\)$/\1/p')"
+
+	if [ -n "$default_kernel" ]; then
+		verbose "current default boot kernel is " \
+			"\"$default_kernel\""
+	else
+		verbose "did not find the default kernel," \
+		      "setup-$boot-conf returned: $default"
+	fi
+
+	# Remove the kernel
+	setup-$boot-conf $verbose --bootdir "$bootdir" \
+	                     remove $force "$kernel" || \
+		fatal "setup-$boot-conf failed to remove" \
+		      "entry \"$kernel\""
+	setup-$boot-conf $verbose --bootdir "$bootdir" \
+	                     remove $force "$kernel-verbose" || \
+		fatal "setup-$boot-conf failed to remove" \
+		      "entry \"$kernel-verbose\""
+
+	# If this is not the default kernel, we are done
+	[ "$kernel" = "$default_kernel" ] || return 0
+
+	# We've just removed the default kernel, find the kernel with the
+	# latest version and make it to be the default
+
+	verbose "removed the default kernel, find the newest available"
+
+	local newest_kernel="$(get_newest_kernel "$bootdir" "$kernel")"
+
+	if [ -z "$newest_kernel" ]; then
+		verbose "no more kernels, set the kernel to none"
+		setup-$boot-conf $verbose --bootdir "$bootdir" \
+				     default --force "<none>"
+	else
+		verbose "new default kernel is \"$newest_kernel\""
+		setup-$boot-conf $verbose --bootdir "$bootdir" \
+				     default "$newest_kernel"
+	fi
+
+	if [ "$?" -ne 0 ]; then
+		fatal "cannot set default kernel, \"setup-$boot-conf\" failed"
+	fi
+}
+
+#
+# -----------------------------------------------------------------------------
+# The "default" subcommand
+# -----------------------------------------------------------------------------
+#
+
+show_default_usage()
+{
+	cat <<-EOF
+Usage: $PROG default [options] <kernel>
+
+Set the default boot kernel to <kernel>. If <kernel> is omited, print the
+current default boot kernel name.
+
+Options:
+  -f, --force  do not fail if <kernel> doesn't exist
+  -h, --help   show this text and exit
+EOF
+}
+
+show_default_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_default_usage >&2
+	exit 1
+}
+
+default_subcommand()
+{
+	local tmp
+	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+		show_default_usage_fail "cannot parse command-line options"
+	eval set -- "$tmp"
+
+	local force=
+	while true; do
+		case "$1" in
+		-f|--force)
+			force="-f"
+			;;
+		-h|--help)
+			show_default_usage
+			exit 0
+			;;
+		--) shift; break
+			;;
+		*) show_default_usage_fail "unrecognized option \"$1\""
+			;;
+		esac
+		shift
+	done
+
+	if [ "$#" -gt 1 ]; then
+		show_default_usage_fail "too many arguments: \"$1\""
+	fi
+
+	prepare
+
+	local kernel="${1:-}"
+	local kernel_path="$bootdir/$kernel"
+
+	if [ -n "$kernel" ] && ! [ -f "$kernel_path" ] && [ -z "$force" ]; then
+		fatal "cannot find kernel \"$kernel_path\"" \
+		      "(use -f to ignore this error)"
+	fi
+
+	setup-$boot-conf $verbose --bootdir "$bootdir" default $force "$kernel"
+}
+
+#
+# -----------------------------------------------------------------------------
+#
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options] <subcommand> [options] <arguments>
+
+This program adds or removes a kernel to/from the bootloader configuration
+file(s). This is a Tizen IVI-specific program and it currently supports only 2
+bootloader types - extlinux and gummiboot. Each new kernel gets 2 boot menu
+entries - the default and verbose, and both of these are removed by the
+"remove" subcommand.
+
+The supported subcommands are:
+   add     - add bootloader entries for a kernel
+   remove  - remove bootloader entries for a kernel
+   default - get or set the default boot kernel
+
+Run "$PROG <subcommand>" to see subcommand-specific help.
+
+Options:
+  --version      show the program version and exit
+  -v, --verbose  be verbose
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+verbose=
+while [ -n "${1:-""}" ] && [ -z "${1##-*}" ]; do
+	case "$1" in
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-v|--verbose)
+		verbose="-v"
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+if [ "$#" -eq 0 ]; then
+	show_usage
+	exit 0
+fi
+
+# Parse subcommands
+
+subcommand="$1"; shift
+
+case "$subcommand" in
+add)
+	add_subcommand "$@"
+	break
+	;;
+remove)
+	remove_subcommand "$@"
+	break
+	;;
+default)
+	default_subcommand "$@"
+	break
+	;;
+*) show_usage_fail "unrecognized subcommand \"$subcommand\""
+	;;
+esac
