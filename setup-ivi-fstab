@@ -1,0 +1,107 @@
+#!/bin/sh -euf
+
+# Copyright 2013 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-ivi-fstab"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+. setup-ivi-sh-functions
+. installerfw-sh-functions
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options]
+
+Create the default Tizen IVI /etc/fstab file.
+
+Options:
+  -f, --force    re-write /etc/fstab if it exists
+  -v, --verbose  be verbose
+  --version      show the program version and exit
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+# Parse the options
+tmp=`getopt -n $PROG -o f,v,h --long force,verbose,version,help -- "$@"` ||
+	show_usage_fail "cannot parse command-line options"
+eval set -- "$tmp"
+
+force=
+verbose=
+while true; do
+	case "$1" in
+	-f|--force)
+		force="-f"
+		;;
+	-v|--verbose)
+		verbose="-v"
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+installerfw_available || installerfw_restore_env
+
+fstab="$(installerfw_mnt_prefix "/etc/fstab")"
+
+if [ -s "$fstab" ] && [ -z "$force" ]; then
+	fatal "\"$fstab\" already exists, use -f to re-write it"
+fi
+
+installerfw_verify_defined "INSTALLERFW_PART_COUNT"
+
+contents="devpts  /dev/pts  devpts  gid=5,mode=620  0 0
+tmpfs   /dev/shm  tmpfs   defaults        0 0
+proc    /proc     proc    defaults        0 0
+sysfs   /sys      sysfs   defaults        0 0"
+
+pnum=0
+br="
+"
+while [ "$pnum" -lt "$INSTALLERFW_PART_COUNT" ]; do
+	eval uuid="\${INSTALLERFW_PART${pnum}_UUID:-}"
+	eval mountpoint="\${INSTALLERFW_PART${pnum}_MOUNTPOINT:-}"
+	eval fsopts="\${INSTALLERFW_PART${pnum}_FSOPTS:-defaults}"
+	eval fstype="\${INSTALLERFW_PART${pnum}_FSTYPE:-}"
+
+	contents="${contents}${br}UUID=$uuid  $mountpoint  $fstype  $fsopts  0 0"
+
+	pnum="$((pnum+1))"
+done
+
+verbose "writing the followint to \"$fstab\": $contents"
+
+printf "%s" "$contents" > "$fstab"
