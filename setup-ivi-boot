@@ -142,12 +142,12 @@ done
 
 bootdir="$(installerfw_mnt_prefix "/boot")"
 
-# Save the installer framework variables
-installerfw_file="$(installerfw_get_env_file_name)"
-if [ -f "$installerfw_file" ]; then
-	installerfw_restore_env
+if installerfw_available; then
+	if ! [ -s "$(installerfw_get_env_file_name)" ]; then
+		installerfw_save_env
+	fi
 else
-	installerfw_save_env
+	installerfw_restore_env
 fi
 
 # Get OS name

@@ -31,7 +31,7 @@ __verbose()
 }
 
 # Verify that an environment variable is defined
-__verify_defined()
+installerfw_verify_defined()
 {
 	local variable="$1"
 
@@ -45,7 +45,7 @@ __verify_defined()
 # tripple "/" in the resulting path.
 installerfw_mnt_prefix()
 {
-	__verify_defined "INSTALLERFW_MOUNT_PREFIX"
+	installerfw_verify_defined "INSTALLERFW_MOUNT_PREFIX"
 
 	local path="$INSTALLERFW_MOUNT_PREFIX/$1"
 
@@ -113,6 +113,12 @@ installerfw_restore_env()
 		  "framework environment from \"$file\""
 }
 
+# Check whether installer framework variables are defined
+installerfw_available()
+{
+	printenv | LC_ALL=C grep -q "^INSTALLERFW_[^[:blank:]]\+"
+}
+
 # Check if the system is an EFI boot system by checking whether the boot
 # partition is a FAT 32 partition with the magic EFI type GUID.
 installerfw_is_efi_boot_system()
@@ -122,7 +128,7 @@ installerfw_is_efi_boot_system()
 	# Make sure the UUID uses capital letters
 	__ptypeid="$(printf "%s" "$__ptypeid" | tr "[:lower:]" "[:upper:]")"
 
-	__verify_defined "INSTALLERFW_PTABLE_FORMAT"
+	installerfw_verify_defined "INSTALLERFW_PTABLE_FORMAT"
 
 	if [ "${INSTALLERFW_PTABLE_FORMAT:-}" = "gpt" ] && \
 	   [ "$__ptypeid" = "$__esp_ptypeid" ]; then
@@ -154,11 +160,11 @@ installerfw_get_part_info()
 	local __res_var="$1"; shift
 	local __pnum="0"
 
-	__verify_defined "INSTALLERFW_PART_COUNT"
+	installerfw_verify_defined "INSTALLERFW_PART_COUNT"
 
 	while [ "$__pnum" -lt "$INSTALLERFW_PART_COUNT" ]; do
 		local __mp="INSTALLERFW_PART${__pnum}_MOUNTPOINT"
-		__verify_defined "$__mp"
+		installerfw_verify_defined "$__mp"
 
 		__mp="$(eval printf "%s" "\"\$$__mp\"")"
 
