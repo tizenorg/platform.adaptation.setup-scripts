@@ -53,6 +53,7 @@ install -d %{buildroot}/%{_sbindir}
 install -d %{buildroot}/%{_prefix}/share/setup-ivi
 
 install -m755 setup-ivi-boot %{buildroot}/%{_sbindir}
+install -m755 setup-ivi-fstab %{buildroot}/%{_sbindir}
 install -m755 setup-ivi-bootloader-conf %{buildroot}/%{_sbindir}
 install -m755 setup-gummiboot-conf %{buildroot}/%{_sbindir}
 install -m755 setup-extlinux-conf %{buildroot}/%{_sbindir}
@@ -71,6 +72,7 @@ rm -rf %{buildroot}
 %files
 %defattr(-,root,root)
 %{_sbindir}/setup-ivi-boot
+%{_sbindir}/setup-ivi-fstab
 %{_sbindir}/setup-ivi-bootloader-conf
 %{_prefix}/share/setup-ivi/setup-ivi-sh-functions
 %{_prefix}/share/setup-ivi/installerfw-sh-functions

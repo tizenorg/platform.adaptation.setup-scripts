@@ -172,3 +172,6 @@ done
 # Set the default kernel to the kernel with highest version
 newest_kernel="$(get_newest_kernel "$bootdir")"
 setup-ivi-bootloader-conf $verbose default "$newest_kernel"
+
+# And finally, create the /etc/fstab file
+setup-ivi-fstab $verbose --force
