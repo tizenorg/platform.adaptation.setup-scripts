@@ -14,9 +14,6 @@ __osrelease_file="/etc/os-release"
 # EFI System Partition PARTUUID
 __esp_ptypeid="C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
 
-# Mount prefix is assumed to be "/" if it is not defined
-[ -n "${INSTALLERFW_MOUNT_PREFIX:-}" ] || export INSTALLERFW_MOUNT_PREFIX="/"
-
 __fatal()
 {
 	IFS= printf "%s\n" "$__PROG: error: $*" 1>&2
