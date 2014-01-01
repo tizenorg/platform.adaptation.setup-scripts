@@ -116,7 +116,11 @@ installerfw_restore_env()
 # Check whether installer framework variables are defined
 installerfw_available()
 {
-	printenv | LC_ALL=C grep -q "^INSTALLERFW_[^[:blank:]]\+"
+	if printenv | LC_ALL=C grep -q "^INSTALLERFW_[^[:blank:]]\+"; then
+		return 0;
+	else
+		return 1;
+	fi
 }
 
 # Check if the system is an EFI boot system by checking whether the boot
@@ -133,11 +137,11 @@ installerfw_is_efi_boot_system()
 	if [ "${INSTALLERFW_PTABLE_FORMAT:-}" = "gpt" ] && \
 	   [ "$__ptypeid" = "$__esp_ptypeid" ]; then
 		__verbose "installerfw_is_efi_boot_system(): /boot is" \
-		          "the EFI system partition (type is" "\"$__ptypeid\")"
+		          "the EFI system partition"
 		return 0
 	else
 		__verbose "installerfw_is_efi_boot_system(): no EFI" \
-		          "system partition found (type is" "\"$__ptypeid\")"
+		          "system partition found"
 		return 1
 	fi
 }

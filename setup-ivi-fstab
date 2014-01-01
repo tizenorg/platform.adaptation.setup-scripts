@@ -73,7 +73,9 @@ while true; do
 	shift
 done
 
-installerfw_available || installerfw_restore_env
+if ! installerfw_available; then
+	installerfw_restore_env
+fi
 
 fstab="$(installerfw_mnt_prefix "/etc/fstab")"
 

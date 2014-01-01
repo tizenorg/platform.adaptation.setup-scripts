@@ -143,9 +143,7 @@ done
 bootdir="$(installerfw_mnt_prefix "/boot")"
 
 if installerfw_available; then
-	if ! [ -s "$(installerfw_get_env_file_name)" ]; then
-		installerfw_save_env
-	fi
+	installerfw_save_env
 else
 	installerfw_restore_env
 fi
