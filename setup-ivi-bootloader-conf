@@ -10,8 +10,8 @@ VER="1.0"
 srcdir="$(readlink -ev -- ${0%/*})"
 PATH="/usr/share/setup-ivi:$srcdir:$PATH"
 
-. setup-ivi-sh-functions
-. installerfw-sh-functions
+. "$srcdir/setup-ivi-sh-functions"
+. "$srcdir/installerfw-sh-functions"
 
 # This is a small trick which I use to make sure my scripts are portable -
 # check if 'dash' is present, and if yes - use it.
