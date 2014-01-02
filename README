@@ -15,5 +15,7 @@ Some coding style notes for the shell scripts
 4. Be consistent with my style. If you see that something makes no sense
    or could be improved, change that globally.
 
+5. All the error and verbose output should go to stderr
+
 --
 Artem Bityutskiy
