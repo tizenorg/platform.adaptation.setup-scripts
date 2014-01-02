@@ -42,9 +42,7 @@ installerfw_verify_defined()
 # tripple "/" in the resulting path.
 installerfw_mnt_prefix()
 {
-	installerfw_verify_defined "INSTALLERFW_MOUNT_PREFIX"
-
-	local path="$INSTALLERFW_MOUNT_PREFIX/$1"
+	local path="${INSTALLERFW_MOUNT_PREFIX:-}/$1"
 
 	printf "%s" "$path" | LC_ALL=C sed -e 's/\/\+/\//g'
 }
