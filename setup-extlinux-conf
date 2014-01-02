@@ -8,7 +8,11 @@ PROG="setup-extlinux-conf"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
+	. "$srcdir/setup-ivi-sh-functions"
+else
+	.  /usr/share/setup-ivi/setup-ivi-sh-functions
+fi
 
 # This is a small trick which I use to make sure my scripts are portable -
 # check if 'dash' is present, and if yes - use it.
