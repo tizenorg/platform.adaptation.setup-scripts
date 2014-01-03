@@ -7,6 +7,10 @@
 # Own name
 __PROG="$PROG:-setup-ivi-sh-functions"
 
+# Just a useful variable for the newline character(s)
+br="
+"
+
 fatal()
 {
 	IFS= printf "%s\n" "$PROG: error: $*" 1>&2

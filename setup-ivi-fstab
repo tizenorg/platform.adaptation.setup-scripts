@@ -97,8 +97,6 @@ proc    /proc     proc    defaults        0 0
 sysfs   /sys      sysfs   defaults        0 0"
 
 pnum=0
-br="
-"
 while [ "$pnum" -lt "$INSTALLERFW_PART_COUNT" ]; do
 	eval uuid="\${INSTALLERFW_PART${pnum}_UUID:-}"
 	eval mountpoint="\${INSTALLERFW_PART${pnum}_MOUNTPOINT:-}"
