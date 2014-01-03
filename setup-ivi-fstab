@@ -98,10 +98,22 @@ sysfs   /sys      sysfs   defaults        0 0"
 
 pnum=0
 while [ "$pnum" -lt "$INSTALLERFW_PART_COUNT" ]; do
+	installerfw_verify_defined "INSTALLERFW_PART${pnum}_UUID"
+	installerfw_verify_defined "INSTALLERFW_PART${pnum}_MOUNTPOINT"
+	installerfw_verify_defined "INSTALLERFW_PART${pnum}_FSTYPE"
+
 	eval uuid="\${INSTALLERFW_PART${pnum}_UUID:-}"
 	eval mountpoint="\${INSTALLERFW_PART${pnum}_MOUNTPOINT:-}"
 	eval fsopts="\${INSTALLERFW_PART${pnum}_FSOPTS:-defaults}"
 	eval fstype="\${INSTALLERFW_PART${pnum}_FSTYPE:-}"
+
+	if [ "$fstype" = "vfat" ]; then
+		# FAT FS's short UUID has to be uppercase
+		uuid="$(printf "%s" "$uuid" | tr "[:lower:]" "[:upper:]")"
+	else
+		# Normal UUID has to be lowercase
+		uuid="$(printf "%s" "$uuid" | tr "[:upper:]" "[:lower:]")"
+	fi
 
 	contents="${contents}${br}UUID=$uuid  $mountpoint  $fstype  $fsopts  0 0"
 
