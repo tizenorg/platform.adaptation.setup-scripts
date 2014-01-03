@@ -21,7 +21,7 @@ fi
 # This is a small trick which I use to make sure my scripts are portable -
 # check if 'dash' is present, and if yes - use it.
 if can_switch_to_dash; then
-	exec dash -euf "$srcdir/$PROG" "$@"
+	exec dash -euf -- "$srcdir/$PROG" "$@"
 	exit $?
 fi
 

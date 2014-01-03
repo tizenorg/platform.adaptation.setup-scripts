@@ -34,7 +34,8 @@ get_os_name()
 		fatal "the \"$osrelease_path\" file not found"
 
 	# Get the OS name
-	local __os_name="$(LC_ALL=C sed -n -e 's/^PRETTY_NAME="\(.*\)"$/\1/p' "$osrelease_path")"
+	local __os_name="$(LC_ALL=C sed -n -e 's/^PRETTY_NAME="\(.*\)"$/\1/p' \
+			   -- "$osrelease_path")"
 	[ -n "$__os_name" ] || \
 		fatal "cannot find \"PRETTY_NAME\" variable in \"$osrelease_path\""
 
@@ -92,12 +93,14 @@ get_newest_kernel()
 	local bootdir="$1"; shift
 
 	# Generate the list of installed kernels
-	local kernels="$(ls -1 "$bootdir" | LC_ALL=C grep "^vmlinuz-" | sort -r)"
+	local kernels="$(ls -1 "$bootdir" | LC_ALL=C grep -- "^vmlinuz-" | \
+			 sort -r)"
 
 	# Exclude the unwanted kernel, if any
 	if [ -n "${1:-}" ]; then
 		local kernel="$(esc_regexp "$1")"
-		kernels="$(printf "%s" "$kernels" | LC_ALL=C grep -v "^$kernel$")"
+		kernels="$(printf "%s" "$kernels" | LC_ALL=C grep -v -- \
+			   "^$kernel$")"
 	fi
 
 	printf "%s" "$kernels" | head -n1
@@ -118,5 +121,5 @@ remove_trailing_empty_lines()
 		 bl              # and start over
 	    }
 	    /^[[:blank:]]*$/!p   # print the pattern buffer for non-blank lines
-	    ' "$file"
+	    ' -- "$file"
 }

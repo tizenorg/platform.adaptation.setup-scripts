@@ -17,5 +17,9 @@ Some coding style notes for the shell scripts
 
 5. All the error and verbose output should go to stderr
 
+6. Use -- to separate options and arguments, this is generally a good defensive
+   programming practice to make sure no one tricks your commands by adding
+   options to what should be arguments. E.g., 'rm $file' can be made 'rm -rf /"
+   if one makes "$file" to be "-rf /" somehow. 'rm -- $file' would catch this.
 --
 Artem Bityutskiy

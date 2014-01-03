@@ -21,7 +21,7 @@ fi
 # This is a small trick which I use to make sure my scripts are portable -
 # check if 'dash' is present, and if yes - use it.
 if can_switch_to_dash; then
-	exec dash -euf "$srcdir/$PROG" "$@"
+	exec dash -euf -- "$srcdir/$PROG" "$@"
 	exit $?
 fi
 
@@ -39,7 +39,7 @@ install_gummiboot()
 	fi
 
 	# Install gummiboot
-	mkdir -p $verbose "$installdir" >&2
+	mkdir -p $verbose -- "$installdir" >&2
 	[ -f "$gummiboot_path/gummibootia32.efi" ] && \
 		cp $verbose "$gummiboot_path/gummibootia32.efi" \
 		            "$installdir/bootia32.efi" >&2
@@ -73,7 +73,7 @@ install_extlinux()
 		      "variable is not defined"
 
 	# Install extlinux
-	mkdir -p $verbose "$installdir" >&2
+	mkdir -p $verbose -- "$installdir" >&2
 	"$extlinux" --device "$boot_devnode" -i "$installdir" || \
 		fatal "cannot install extlinux to \"$installdir\"" \
 		      "(requires extlinux version 5 or greater)"
@@ -163,7 +163,7 @@ else
 fi
 
 # Create bootloader entries for each kernel
-kernels="$(ls -1 "$bootdir" | LC_ALL=C grep "^vmlinuz-" | sort -r)"
+kernels="$(ls -1 "$bootdir" | LC_ALL=C grep -- "^vmlinuz-" | sort -r)"
 
 [ -n "$kernels" ] || \
 	fatal "no kernels (vmlinuz-*) found in \"$bootdir\""
