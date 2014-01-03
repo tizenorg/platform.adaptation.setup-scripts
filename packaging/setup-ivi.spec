@@ -11,6 +11,7 @@ Requires: /usr/bin/grep
 Requires: /usr/bin/printf
 Requires: /usr/bin/printenv
 Requires: /usr/bin/sort
+Requires: /usr/bin/tr
 Requires: virtual-setup-ivi-bootloader
 BuildArchitectures: noarch
 
@@ -26,6 +27,20 @@ Provides: virtual-setup-ivi-bootloader
 Requires: %{name}
 Requires: syslinux-extlinux
 
+%package -n setup-ivi-clone
+Summary:  A tool for cloning a Tizen IVI system
+Requires: %{name}
+Requires: /usr/bin/mount
+Requires: /usr/bin/udevadm
+Requires: /usr/bin/uuidgen
+Requires: /usr/bin/sync
+Requires: /usr/bin/tail
+Requires: systemd
+Requires: gptfdisk
+Requires: e2fsprogs
+Requires: dosfstools
+Requires: rsync
+
 %description
 This package provides various early system setup programs
 
@@ -36,6 +51,10 @@ configuration files.
 %description -n setup-extlinux
 This package provides a command-line tool for changing the extlinux bootloader
 configuration file.
+
+%description -n setup-ivi-clone
+This package provides a command line tool for cloning a Tizen IVI system to a
+different disk.
 
 ###
 ### PREP
@@ -51,10 +70,14 @@ configuration file.
 %install
 install -d %{buildroot}/%{_sbindir}
 install -d %{buildroot}/%{_prefix}/share/setup-ivi
+install -d %{buildroot}/%{_unitdir}
 
 install -m755 setup-ivi-boot %{buildroot}/%{_sbindir}
 install -m755 setup-ivi-fstab %{buildroot}/%{_sbindir}
 install -m755 setup-ivi-bootloader-conf %{buildroot}/%{_sbindir}
+install -m755 setup-ivi-clone %{buildroot}/%{_sbindir}
+install -m755 setup-ivi-clone-service %{buildroot}/%{_sbindir}
+install -m644 ivi-clone.service %{buildroot}/%{_unitdir}
 install -m755 setup-gummiboot-conf %{buildroot}/%{_sbindir}
 install -m755 setup-extlinux-conf %{buildroot}/%{_sbindir}
 install -m644 setup-ivi-sh-functions %{buildroot}/%{_prefix}/share/setup-ivi
@@ -84,3 +107,11 @@ rm -rf %{buildroot}
 %files -n setup-extlinux
 %defattr(-,root,root)
 %{_sbindir}/setup-extlinux-conf
+
+%files -n setup-ivi-clone
+%defattr(-,root,root)
+%{_sbindir}/setup-ivi-clone
+%{_sbindir}/setup-ivi-clone-service
+# Note, we do not need to run 'systemctl enable ivi-clone' for this one because
+# it is activated by the 'systemd.unit=ivi-clone.service' kernel parameter.
+%{_unitdir}/ivi-clone.service

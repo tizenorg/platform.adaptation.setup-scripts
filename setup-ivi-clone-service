@@ -1,0 +1,180 @@
+#!/bin/sh -euf
+
+# Copyright 2013-2014 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-ivi-clone-service"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+
+if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
+	. "$srcdir/setup-ivi-sh-functions"
+	. "$srcdir/installerfw-sh-functions"
+else
+	.  /usr/share/setup-ivi/setup-ivi-sh-functions
+	.  /usr/share/setup-ivi/installerfw-sh-functions
+fi
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf -- "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+# Find the first non-removable device and prints its device node name.
+find_an_internal_disk()
+{
+	local dir
+
+	ls -1 "/sys/block" | while IFS= read -r name; do
+		local removable="$(cat "/sys/block/$name/removable")"
+		local size="$(cat "/sys/block/$name/size")"
+
+		if [ "$removable" -eq "0" ] && [ "$size" -ne "0" ]; then
+			verbose "found removable disk \"$name\""
+			printf "%s" "/dev/$name"
+			break
+		fi
+	done
+}
+
+# Get user-readable information about a disk.
+get_disk_info()
+{
+	local name="${1##*/}"
+	local path="/sys/block/$name"
+
+	local size="$(LC_ALL=C sed -n -e "s/[[:blank:]]*$//p" -- "$path/size")"
+	local info="size $(($size/2048))MiB"
+
+	if [ -f "$path/device/vendor" ]; then
+		local vendor="$(LC_ALL=C sed -n -e "s/[[:blank:]]*$//p" -- \
+		                                    "$path/device/vendor")"
+		info="${info}, $vendor"
+	fi
+
+	if [ -f "$path/device/model" ]; then
+		local model="$(LC_ALL=C sed -n -e "s/[[:blank:]]*$//p" -- \
+		                                  "$path/device/model")"
+		info="${info} $model"
+	fi
+
+	printf "%s" "$info"
+}
+
+# Get user confirmation about whether it is OK to proceed.
+get_confirmation()
+{
+	printf "%s\n" "WARNING! All the disk data will be destroyed!"
+
+	while true; do
+		printf "%s\n" "Type \"yes\" to proceed, type \"no\" to exit"
+
+		local input
+		read input
+
+		if printf "%s" "$input" | grep -q -I -e "^yes$"; then
+			return
+		elif printf "%s" "$input" | grep -q -I -e "^no$"; then
+			exit 0
+		fi
+	done
+}
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options]
+
+This program is a wrapper over the 'setup-ivi-clone' program and it is intended
+to be executed from a systemd service when the system boots up.
+
+By default, this program finds the first non-removable device in the system and
+installs the OS there. However, if the 'ivi-clone-target=<devnode>' kernel boot
+option is present (see "/proc/cmdline"), then this program installs the OS to
+the disk represented by "<devnode>" (e.g., "/dev/sda").
+
+The 'ivi-clone-target=autodetect' kernel option causes the default behaviour.
+
+Options:
+  -f, --force    do not ask for confirmation, just proceed with cloning the OS
+  --version      show the program version and exit
+  -v, --verbose  be verbose
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+# Parse the options
+tmp=`getopt -n $PROG -o f,v,h --long force,verbose,version,help -- "$@"` ||
+	show_usage_fail "cannot parse command-line options"
+eval set -- "$tmp"
+
+verbose=
+force=
+while true; do
+	case "$1" in
+	-f|--force)
+		force="-f"
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-v|--verbose)
+		verbose="-v"
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+[ "$#" -eq 0 ] || \
+	show_usage_fail "this program does not take any arguments"
+
+# Sleep for a while to make sure other tasks finish and our messages appear the
+# last on the console.
+sleep 2
+
+devnode="$(sed -n -e "s/^.*ivi-clone-target=\([^ ]\+\).*$/\1/p" /proc/cmdline)"
+if [ -z "$devnode" ] || [ "$devnode" = "autodetect" ]; then
+	devnode="$(find_an_internal_disk)"
+
+	[ -n "$devnode" ] || fatal "cannot find an internal disk"
+fi
+
+# Make sure all device nodes are created
+udevadm settle > /dev/null 2>&1 ||:
+
+[ -b "$devnode" ] || fatal "intended to clone the OS to \"$devnode\"," \
+			   "but it does not exist"
+
+disk_info="$(get_disk_info "$devnode")"
+if [ -n "$disk_info" ]; then
+	disk_info="$devnode ($disk_info)"
+else
+	disk_info="$devnode"
+fi
+
+printf "%s\n" "cloning the Tizen IVI OS to \"$disk_info\""
+[ -z "$force" ] && get_confirmation
+printf "%s\n" "this may take a while, be patient"
+
+setup-ivi-clone $verbose "$devnode" || fatal "failed to clone to $devnode"

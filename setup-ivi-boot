@@ -1,6 +1,6 @@
 #!/bin/sh -euf
 
-# Copyright 2013 Intel Corporation
+# Copyright 2013-2014 Intel Corporation
 # Author: Artem Bityutskiy
 # License: GPLv2
 
@@ -52,10 +52,9 @@ install_gummiboot()
 
 install_extlinux()
 {
-	verbose "installing extlinux to $bootdir"
-
 	local installdir="$bootdir/extlinux"
 	local extlinux="extlinux"
+	local output
 
 	# Check if extlinux is available
         if ! command -v "extlinux" >/dev/null 2>&1; then
@@ -73,11 +72,13 @@ install_extlinux()
 		      "variable is not defined"
 
 	# Install extlinux
+	verbose "installing extlinux to $bootdir, boot device node is" \
+	        "\"$boot_devnode\""
 	mkdir -p $verbose -- "$installdir" >&2
-	"$extlinux" --device "$boot_devnode" -i "$installdir" || \
-		fatal "cannot install extlinux to \"$installdir\"" \
-		      "(requires extlinux version 5 or greater)"
-
+	output="$("$extlinux" --device "$boot_devnode" -i "$installdir" 2>&1)" \
+		|| fatal "cannot install extlinux to \"$installdir\" (note," \
+		         "extlinux version 5 or greater is required)" \
+		         "${br}${output}"
 
 	# Get device node name for the boot disk
 	local mbr_devnode
@@ -88,9 +89,12 @@ install_extlinux()
 		      "variable is not defined"
 
 	# Install the MBR part of extlinux
-	local mbr_bin="$(installerfw_mnt_prefix "/usr/share/syslinux/gptmbr.bin")"
-	dd if="$mbr_bin" of="$mbr_devnode" count=1 || \
-		fatal "cannot install MBR: dd if=$mbr_bin of=$mbr_devnode"
+	local mbr_bin="$(installerfw_mnt_prefix \
+			 "/usr/share/syslinux/gptmbr.bin")"
+	verbose "setting up MBR, writing \"$mbr_bin\" to \"$mbr_devnode\""
+	output="$(dd if="$mbr_bin" of="$mbr_devnode" count=1 2>&1)" || \
+		fatal "cannot install MBR, dd if=$mbr_bin of=$mbr_devnode" \
+		      "failed${br}${output}"
 
 	verbose "installed extlinux to $bootdir"
 }

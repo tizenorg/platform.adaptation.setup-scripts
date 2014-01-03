@@ -1,0 +1,541 @@
+#!/bin/sh -euf
+
+# Copyright 2013-2014 Intel Corporation
+# Author: Artem Bityutskiy
+# License: GPLv2
+
+PROG="setup-ivi-clone"
+VER="1.0"
+
+srcdir="$(readlink -ev -- ${0%/*})"
+
+if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
+	. "$srcdir/setup-ivi-sh-functions"
+	. "$srcdir/installerfw-sh-functions"
+else
+	.  /usr/share/setup-ivi/setup-ivi-sh-functions
+	.  /usr/share/setup-ivi/installerfw-sh-functions
+fi
+
+# This is a small trick which I use to make sure my scripts are portable -
+# check if 'dash' is present, and if yes - use it.
+if can_switch_to_dash; then
+	exec dash -euf -- "$srcdir/$PROG" "$@"
+	exit $?
+fi
+
+# These are used in the cleanup handler, so have to be defined before the
+# function
+tmpdir=
+unmount_list=
+automount_status=
+
+# Unmount all partitions which we possibly mounted
+unmount_partitions()
+{
+	printf "%s\n" "$unmount_list" | while IFS= read -r dir; do
+		if [ -n "$dir" ]; then
+			verbose "unmount \"$dir\""
+			umount $verbose -- "$dir" >&2 ||:
+		fi
+	done
+}
+
+# This function is called on exit, crashes, interrupts, etc. We clean up
+# everything here before the program is terminated
+cleanup_handler()
+{
+	local exitcode="$1"
+
+	# Restore the default exit handler
+	trap - EXIT
+
+	verbose "cleanup and exit with code $exitcode"
+
+	unmount_partitions
+	rm -r $verbose -- "$tmpdir" >&2
+
+	if [ "$automount_status" = "active" ]; then
+		message "re-enabling udisks-automount-agent"
+		systemctl --user start udisks-automount-agent || \
+			warning "cannot start udisks-automount-agent"
+	fi
+
+	exit "$exitcode"
+}
+
+# Append a line to a list, which is just text where each line is considered to
+# be an element of the list. The first parameter is the line to append, the
+# second parameter is the variable name to append to (the variable is defined
+# outside of this function and contains the text to prepend the line to).
+list_append()
+{
+	local __value="$1"; shift
+	local __list_name="$1"
+	eval local "__list=\$$__list_name"
+
+	[ -z "$__list" ] && eval "$__list_name=\"\$__value\"" || \
+	                    eval "$__list_name=\"\${__list}\${br}\${__value}\""
+}
+
+# Similar to 'list_append()', but prepends a list with a line.
+list_prepend()
+{
+	local __value="$1"; shift
+	local __list_name="$1"
+	eval local "__list=\$$__list_name"
+
+	[ -z "$__list" ] && eval "$__list_name=\"\$__value\"" || \
+	                    eval "$__list_name=\"\${__value}\${br}\${__list}\""
+}
+
+# Create partitions on the destination disk. This function also updates the
+# following installer framework environment variables:
+#   o INSTALLERFW_PARTx_PARTUUID
+#   o INSTALLERFW_PARTx_TYPE_ID
+create_partitions()
+{
+	# The GPT partition type GUID for Linux partitions
+	local linuxfs_type_id="0fc63daf-8483-4772-8e79-3d69d8477de4"
+
+	verbose "destroying all partitions at \"$dstdisk\""
+	sgdisk -z "$dstdisk" -- > /dev/null 2>&1 ||:
+	sgdisk -Z "$dstdisk" -- > /dev/null 2>&1 ||:
+
+	# Create all partitions one-by-one
+	local pnum=0
+	local gdisk_pnum=1
+	while [ "$pnum" -lt "$part_count" ]; do
+		installerfw_verify_defined "INSTALLERFW_PART${pnum}_SIZE"
+
+		eval local size="\$INSTALLERFW_PART${pnum}_SIZE"
+		eval local bootflag="\${INSTALLERFW_PART${pnum}_BOOTFLAG:-}"
+		eval local type_id="\${INSTALLERFW_PART${pnum}_TYPE_ID:-$linuxfs_type_id}"
+
+		if [ "$gdisk_pnum" -eq "$part_count" ]; then
+			# Make the last partition take the rest of the space
+			verbose "creating the last partition $pnum"
+			sgdisk -n "$gdisk_pnum:+0:-1s" -- "$dstdisk" > /dev/null
+		else
+			verbose "creating partition $pnum of size $size MiB"
+			sgdisk -n "$gdisk_pnum:+0:+${size}M" -- "$dstdisk" > /dev/null
+		fi
+
+		# Re-set the UUID
+		local partuuid="$(uuidgen)"
+		verbose "setting partition $pnum PARTUUID to $partuuid"
+		sgdisk -u "$gdisk_pnum:$partuuid" -- "$dstdisk" > /dev/null
+
+		# Take care of the boot flag
+		if [ "$bootflag" = "True" ]; then
+			verbose "setting the boot flag for partition $pnum"
+			sgdisk -A "$gdisk_pnum:set:2" -- "$dstdisk" > /dev/null
+		fi
+
+		verbose "setting partition $pnum type ID to $type_id"
+		sgdisk -t "$gdisk_pnum:$type_id" -- "$dstdisk" > /dev/null
+
+		# Re-define some installer framework variables
+		eval "export INSTALLERFW_PART${pnum}_PARTUUID=$partuuid"
+		eval "export INSTALLERFW_PART${pnum}_TYPE_ID=$type_id"
+
+		pnum="$(($pnum + 1))"
+		gdisk_pnum="$(($gdisk_pnum + 1))"
+	done
+}
+
+# Find the device node name by its major:minor numbers ($1:$2).
+find_devnode_by_nums()
+{
+	local major="$1"; shift
+	local minor="$1"
+
+	ls -1 /dev | while IFS= read -r node; do
+		local ma="$(printf "%d" "0x$(stat -c '%t' -- "/dev/$node")")"
+		local mi="$(printf "%d" "0x$(stat -c '%T' -- "/dev/$node")")"
+
+		if [ -b "/dev/$node" ] && [ "$ma" -eq "$major" ] && \
+		   [ "$mi" -eq "$minor" ]; then
+			printf "%s" "/dev/$node"
+			break
+		fi
+	done
+}
+
+# Find the device node name by a file name. In other words, for a given file,
+# fine the device node of the partition this file resides on.
+find_devnode_by_file()
+{
+	local file="$1"
+	local devnum="$(stat -c '%d' -- "$file")"
+	local major=$((($devnum / 256) % 256))
+	local minor=$(($devnum % 256))
+
+	find_devnode_by_nums "$major" "$minor"
+}
+
+# Find all the source and destination device nodes and declare change the
+# following installer framework environment variables:
+#   o INSTALLERFW_PARTx_DEVNODE_NOW
+#   o INSTALLERFW_PARTx_DISK_DEVNODE_NOW
+# And for the source partitions, the device node names are stored in
+# "srcpartX_devnode" variables (X is the partition number).
+find_devnodes()
+{
+	# Find source device nodes
+
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		installerfw_verify_defined "INSTALLERFW_PART${pnum}_MOUNTPOINT"
+
+		eval local mountpoint="\$INSTALLERFW_PART${pnum}_MOUNTPOINT"
+		local devnode="$(find_devnode_by_file "$mountpoint")"
+
+		[ -n "$devnode" ] || fatal "cannot find device node for" \
+		                           "source partition $mountpoint"
+
+		verbose "source partition $mountpoint device node is: $devnode"
+
+		eval "srcpart${pnum}_devnode=$devnode"
+
+		pnum="$(($pnum + 1))"
+	done
+
+	# Find destination device nodes
+
+	local major="$(printf "%d" "0x$(stat -c '%t' -- "$dstdisk")")"
+	local minor="$(printf "%d" "0x$(stat -c '%T' -- "$dstdisk")")"
+
+	pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		local part_minor="$(($minor + $pnum + 1))"
+		devnode="$(find_devnode_by_nums "$major" "$part_minor")"
+
+		[ -n "$devnode" ] || fatal "cannot find device node for" \
+		                           "destination partition $pnum"
+
+		verbose "destination partition $pnum device node is: $devnode"
+
+		eval "export INSTALLERFW_PART${pnum}_DEVNODE_NOW=$devnode"
+		eval "export INSTALLERFW_PART${pnum}_DISK_DEVNODE_NOW=$dstdisk"
+
+		pnum="$(($pnum + 1))"
+	done
+
+}
+
+# Format all the destination partitions and changes the
+# "INSTALLERFW_PARTx_UUID" installer framework environment variables.
+format_dst_partitions()
+{
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		installerfw_verify_defined "INSTALLERFW_PART${pnum}_FSTYPE"
+		eval local fstype="\$INSTALLERFW_PART${pnum}_FSTYPE"
+		eval local label="\${INSTALLERFW_PART${pnum}_LABEL:-}"
+		eval local devnode="\$INSTALLERFW_PART${pnum}_DEVNODE_NOW"
+
+		local uuid="$(uuidgen)"
+
+		verbose "format partition $pnum ($devnode) with mkfs.$fstype"
+
+		if [ "$fstype" != "vfat" ]; then
+			verbose "partition $pnum label is \"$label\", UUID is \"$uuid\""
+
+			[ -z "$label" ] || label="-L $label"
+
+			mkfs.$fstype $verbose $quiet $label -U "$uuid" -- "$devnode" >&2
+		else
+			# FATFS Volume ID is an XXXXXXXX (32-bit) string, where
+			# X is are uppercase hex digits.
+			uuid="$(printf "%s" "$uuid" | head -c8 | \
+				tr "[:lower:]" "[:upper:]")"
+
+			verbose "partition $pnum label is \"$label\", UUID is \"$uuid\""
+
+			[ -z "$label" ] || label="-n $label"
+
+			if [ -n "$verbose" ]; then
+				mkfs.vfat $verbose $label -i "$uuid" -- "$devnode" >&2
+			else
+				# mkfs.vfat does not accept -q
+				mkfs.vfat $label -i "$uuid" -- "$devnode" > /dev/null
+			fi
+
+			# However, the installer framework variable has to have
+			# the XXXX-XXXX format, not XXXXXXXX. Unfortunately,
+			# mkfs.vfat does not like the "-", while 'mount'
+			# requires the "-".
+			uuid="$(printf "%s" "$uuid" | LC_ALL=C sed -e 's/.\{4\}/&-/')"
+		fi
+
+		eval "export INSTALLERFW_PART${pnum}_UUID=$uuid"
+
+		pnum="$(($pnum+1))"
+	done
+}
+
+# Mount source and destination partition
+mount_partitions()
+{
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		eval local mountpoint="\$INSTALLERFW_PART${pnum}_MOUNTPOINT"
+
+		# Mount the source partition
+		eval local devnode="\$srcpart${pnum}_devnode"
+		local mntdir="$srcbase/$pnum"
+
+		verbose "mounting source partition $pnum" \
+		        "($devnode, $mountpoint) to $mntdir"
+
+		mkdir -p $verbose -- "$mntdir" >&2
+		mount $verbose -- "$devnode" "$mntdir" >&2
+		list_prepend "$mntdir" "unmount_list"
+
+		# Mount the destination partition
+		eval devnode="\$INSTALLERFW_PART${pnum}_DEVNODE_NOW"
+		mntdir="$dstbase/$pnum"
+
+		verbose "mounting destination partition $pnum" \
+		        "($devnode, $mountpoint) to $mntdir"
+
+		mkdir -p $verbose -- "$mntdir" >&2
+		mount $verbose -- "$devnode" "$mntdir" >&2
+		list_prepend "$mntdir" "unmount_list"
+
+		pnum="$(($pnum + 1))"
+	done
+}
+
+# Copy data from all the source partitions to destination partitions
+copy_the_data()
+{
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		local src_mntdir="$srcbase/$pnum"
+		local dst_mntdir="$dstbase/$pnum"
+
+		verbose "copy partition $pnum:" \
+		        "\"$src_mntdir\" -> \"$dst_mntdir\""
+
+		rsync  -WaHXSh --exclude "${tmpdir}" "$src_mntdir/" "$dst_mntdir/"
+
+		pnum="$(($pnum + 1))"
+	done
+}
+
+# This function creates proper target hierarchy by mounting destination
+# partition under the right mount points. By the time this function is called,
+# all the destination partitions are mounted under "$dstbase/$pnum", so "/boot"
+# is not under "/", etc. This function mounts them under "$dstbase/root"
+create_dst_hierarchy()
+{
+	# Create a sorted list of mount points
+	local list=
+	local mountpoint=
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		eval mountpoint="\$INSTALLERFW_PART${pnum}_MOUNTPOINT"
+		list_append "$mountpoint" "list"
+		pnum="$(($pnum+1))"
+	done
+
+	list="$(printf "%s" "$list" | sort)"
+
+	mkdir $verbose -- "$dstbase/root" >&2
+
+	local devnode=
+	local mntdir=
+	local IFS="$br"
+	for mountpoint in $list; do
+		installerfw_get_part_info "$mountpoint" "DEVNODE_NOW" "devnode"
+		mntdir="$dstbase/root$mountpoint"
+
+		verbose "mounting \"$devnode\" under \"$mntdir\""
+		mount $verbose -- "$devnode" "$mntdir" >&2
+
+		list_prepend "$mntdir" "unmount_list"
+	done
+}
+
+# Amend the /etc/installerfw-environment file at the destination.
+amend_installerfw_environment()
+{
+	# Most of the variables were already changed, let's take care about the
+	# rest.
+	export INSTALLERFW_INSTALLER_NAME="$PROG"
+	export INSTALLERFW_MOUNT_PREFIX="$dstbase/root"
+
+	local pnum=0
+	while [ "$pnum" -lt "$part_count" ]; do
+		eval "unset INSTALLERFW_PART${pnum}_DEVNODE"
+		eval "unset INSTALLERFW_PART${pnum}_DISK_DEVNODE"
+		pnum="$(($pnum+1))"
+	done
+
+	installerfw_save_env
+}
+
+# Check if the block device is mounted
+# TODO: the much better way to do this is to use the open(2) "O_EXCL" flag
+# which has special meaning for block devices. This would need to write a
+# C helper program, something like setup-ivi-open-helper.
+is_mounted()
+{
+	local devnode="$(esc_regexp "$1")"
+
+	grep -q -e "^$devnode[p0-9]* " /proc/mounts
+}
+
+show_usage()
+{
+	cat <<-EOF
+Usage: $PROG [options] <dstdisk>
+
+Clone a running Tizen IVI system to a different disk. The mandatory argument
+"<dstdisk>" is the device node name to clone to (e.g., /dev/sda). Be careful,
+this program will destroy all the "<dstdisk>" data!
+
+The program roughly works like this.
+
+1. Reads the "/etc/installerfw-environment" file to get information about the
+   partitions of the running system.
+2. Partitions "<dstdisk>" according to "/etc/installerfw-environment" (the last
+   partition gets re-sized to consume all the space on "<dstdisk>").
+3. Formats all the newly created partitions on "<dstdisk>".
+4. Copies all the data from the disk Tizen IVI currently runs from to
+   "<dstdisk>", partition-by-partition.
+5. Configures the cloned system on "<dstdisk>" by "setup-ivi-boot".
+6. Reboots the system.
+
+Options:
+  -v, --verbose  be verbose
+  --version      show the program version and exit
+  -h, --help     show this text and exit
+EOF
+}
+
+show_usage_fail()
+{
+	IFS= printf "%s\n\n" "$PROG: error: $*" >&2
+	show_usage >&2
+	exit 1
+}
+
+# Parse the options
+tmp=`getopt -n $PROG -o v,h --long verbose,version,help -- "$@"` ||
+	show_usage_fail "cannot parse command-line options"
+eval set -- "$tmp"
+
+dstdisk=
+verbose=
+quiet="-q"
+while true; do
+	case "$1" in
+	-v|--verbose)
+		verbose="-v"
+		quiet=
+		;;
+	--version)
+		printf "%s\n" "$VER"
+		exit 0
+		;;
+	-h|--help)
+		show_usage
+		exit 0
+		;;
+	--) shift; break
+		;;
+	*) show_usage_fail "unrecognized option \"$1\""
+		;;
+	esac
+	shift
+done
+
+[ "$#" -eq 1 ] || \
+	show_usage_fail "please, provide exactly one \"disk\" argument"
+
+dstdisk="$1"
+[ -b "$dstdisk" ] || \
+	fatal "\"$dstdisk\" does not exist or is not a block device node"
+
+is_mounted "$dstdisk" && fatal "\"$dstdisk\" is mounted"
+
+# Load the installer framework data
+if ! installerfw_available; then
+	installerfw_restore_env
+fi
+
+# Install the cleanup handler (the first parameter will be our exit code)
+trap 'cleanup_handler $?' EXIT
+trap 'cleanup_handler 1' HUP PIPE INT QUIT TERM
+
+# Create our work directory
+tmpdir="$(mktemp --tmpdir="/tmp" -d -t -- "$PROG.XXXX")"
+verbose "tmpdir is \"$tmpdir\""
+
+srcbase="$tmpdir/src"
+dstbase="$tmpdir/dst"
+mkdir $verbose -- "$srcbase" >&2
+mkdir $verbose -- "$dstbase" >&2
+
+# Fetch some installer framework variables
+installerfw_verify_defined "INSTALLERFW_PTABLE_FORMAT"
+installerfw_verify_defined "INSTALLERFW_PART_COUNT"
+
+ptable_format="$INSTALLERFW_PTABLE_FORMAT"
+part_count="$INSTALLERFW_PART_COUNT"
+
+# Some general checks
+if [ "$ptable_format" != "gpt" ]; then
+	fatal "partition table type \"$ptable_format\" is not supported"
+fi
+
+# Disable the Tizen IVI automount agent, otherwise it may start mounting the
+# $dstdisk partitions that we are going to create
+automount_status="$(systemctl --user is-active udisks-automount-agent 2>/dev/null ||:)"
+if [ "$automount_status" = "active" ]; then
+	message "disabling udisks-automount-agent"
+	if ! systemctl --user stop udisks-automount-agent; then
+		warning "cannot stop udisks-automount-agent"
+		automount_status="dunno"
+	fi
+fi
+
+# Create partitions on the destination disk
+message "partitioning $dstdisk"
+create_partitions
+
+# Make sure the device nodes are created
+udevadm settle > /dev/null 2>&1 ||:
+
+# Find device nodes for source and destination partitions
+find_devnodes
+
+# Format the destination partitions
+message "formatting $dstdisk"
+format_dst_partitions
+
+# Mount the source and destination partitions
+mount_partitions
+
+# Copy all the data
+message "copying all the data to $dstdisk"
+copy_the_data
+
+# Create proper target file-system hierarchy in order to be able to execute
+# installer framework scripts for the target.
+create_dst_hierarchy
+
+message "finished copying, configuring the cloned OS"
+
+# Amend the /etc/installerfw-environment file on the destination
+amend_installerfw_environment
+
+# Configure the target system
+$srcdir/setup-ivi-boot $verbose
+
+# Note, unmount happens in 'cleanup_handler()'
+message "done, synchronizing the data"
+sync
