@@ -75,6 +75,7 @@ installerfw_save_env()
 -e '^INSTALLERFW_PART[[:digit:]]\+_UUID=' \
 -e '^INSTALLERFW_PART_COUNT=' \
 -e '^INSTALLERFW_PTABLE_FORMAT=' \
+-e '^INSTALLERFW_INSTALLER_NAME=' \
 "
 
 	local variables="$(printenv | eval "LC_ALL=C grep $opts")"
