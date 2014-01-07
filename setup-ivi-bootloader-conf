@@ -31,6 +31,7 @@ prepare()
 	# Get the installer framework environment
 	installerfw_restore_env
 
+	rootdir="$(installerfw_mnt_prefix "/")"
 	bootdir="$(installerfw_mnt_prefix "/boot")"
 
 	if installerfw_is_efi_boot_system; then
@@ -127,22 +128,35 @@ add_subcommand()
 	local os_name=
 	get_os_name "os_name"
 
-	# Add the bootloader entry
+	# Add the default bootloader entry
 	setup-$boot-conf $verbose --bootdir "$bootdir" add $force \
 		"$kernel" "$os_name" "$kernel" "$options"
 
-	# If there is the "quiet" option, create a non-quiet configuration
-	local dbgopts="$(printf "%s" "$options" | LC_ALL=C \
+	# Add the debug bootloader entry. If there is the "quiet" option,
+	# create a non-quiet configuration.
+	local verbose_opts="$(printf "%s" "$options" | LC_ALL=C \
 				sed -e "s/[[:blank:]]\+quiet[[:blank:]]\+/ /
 					s/^quiet[[:blank:]]\+//
 					s/[[:blank:]]\+quiet$//
 					s/^quiet$//")"
 
-	dbgopts="$dbgopts ignore_loglevel initcall_debug log_buf_len=2M"
+	local debug_opts="$verbose_opts ignore_loglevel log_buf_len=2M"
+	local debug_opts="$debug_opts initcall_debug"
+
 
 	setup-$boot-conf $verbose --bootdir "$bootdir" add \
-		$force "$kernel-debug" "$os_name (debug)" \
-		"$kernel" "$dbgopts"
+		$force "$kernel-debug" "Debug $os_name" \
+		"$kernel" "$verbose_opts"
+
+	# Add the clone bootloader entry, but only if the cloning tool is
+	# installed
+	if [ -f "$rootdir/usr/sbin/setup-ivi-clone" ]; then
+		clone_opts="$options systemd.unit=ivi-clone.service"
+		clone_opts="$clone_opts ivi-clone-target=autodetect"
+		setup-$boot-conf $verbose --bootdir "$bootdir" add \
+			$force "$kernel-clone" "Clone $os_name" \
+			"$kernel" "$clone_opts"
+	fi
 }
 
 #
@@ -237,9 +251,14 @@ remove_subcommand()
 		fatal "setup-$boot-conf failed to remove" \
 		      "entry \"$kernel\""
 	setup-$boot-conf $verbose --bootdir "$bootdir" \
-	                     remove $force "$kernel-verbose" || \
+	                     remove $force "$kernel-debug" || \
 		fatal "setup-$boot-conf failed to remove" \
 		      "entry \"$kernel-verbose\""
+	# The "clone" entry does not necessary exist, so use --force
+	setup-$boot-conf $verbose --bootdir "$bootdir" \
+	                     remove --force "$kernel-clone" || \
+		fatal "setup-$boot-conf failed to remove" \
+		      "entry \"$kernel-clone\""
 
 	# If this is not the default kernel, we are done
 	[ "$kernel" = "$default_kernel" ] || return 0
