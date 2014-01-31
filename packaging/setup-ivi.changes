@@ -1,2 +1,7 @@
+* Fri Jan 31 2014 Artem Bityutskiy <artem.bityutskiy@linux.intel.com> 1.0
+- Generate kernel entries for debugging the splash screen work. These are
+  separate entries now, and only work for the gummiboot bloot-loader. Once
+  splash screen works well, it becomes part of the default boot entry.
+
 * Wed Jan 15 10:15:26 UTC 2014 Artem Bityutskiy <artem.bityutskiy@linux.intel.com> 1.0
 - Initial implementation.
