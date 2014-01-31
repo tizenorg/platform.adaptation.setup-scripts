@@ -5,7 +5,8 @@ Some coding style notes for the shell scripts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 1. Do not use bashisms, install 'dash' and use it to verify that the
-   scripts are free of bashisms.
+   scripts are free of bashisms. Please, read this article:
+   https://wiki.ubuntu.com/DashAsBinSh
 
 2. Do not use all capitals for variables
 
@@ -21,5 +22,24 @@ Some coding style notes for the shell scripts
    programming practice to make sure no one tricks your commands by adding
    options to what should be arguments. E.g., 'rm $file' can be made 'rm -rf /"
    if one makes "$file" to be "-rf /" somehow. 'rm -- $file' would catch this.
+
+7. Distinguish between options and arguments:
+       command --option1 --option2 argument1 argument2
+   Options are optional, do add "mandatory" options.
+   Arguments are mandatory, do not add optional arguments.
+
+8. Quote all the variables. This is important for everything which comes from
+   outside. But it is better to have this as a habit, jsut quote everything
+   starting with "$". Well, there exceptions sometimes, e.g., see how $verbose
+   is used. But these are rare. You can google for shell script attack vectors,
+   and notice that many of them are about giving tricky inputs with "$" signs,
+   spaces, and so on. Most of them are based on the fact that people do not
+   use quotes.
+
+9. Do not use "echo", use "printf". Well, "echo" is OK to use with "controlled"
+   data, but it is easier to just always use "printf" to maintain good
+   discipline. E.g., read this for some insight about why "printf" is safer:
+   http://unix.stackexchange.com/questions/65803/why-is-printf-better-than-echo
+
 --
 Artem Bityutskiy
