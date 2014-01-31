@@ -101,6 +101,9 @@ Options:
   -f, --force  if the entry already exists - re-write it, if
 	       <bootdir>/loader/loader.conf does not exist - create one,
 	       if <bootdir>/<kernel> does not exist - do not fail
+  -s, --splash <file>
+	       add a splash field to the entry file. <file> is a
+	       mandatory parameter to specify splash image location.
   -h, --help   show this text and exit
 EOF
 }
@@ -120,15 +123,19 @@ add_subcommand()
 	fi
 
 	local tmp
-	tmp=`getopt -n $PROG -o f,h --long force,help -- "$@"` ||
+	tmp=`getopt -n $PROG -o f,s:,h --long force,splash:,help -- "$@"` ||
 		show_add_usage_fail "cannot parse command-line options"
 	eval set -- "$tmp"
 
 	local force=
+	local splash=
 	while true; do
 		case "$1" in
 		-f|--force)
 			force="-f"
+			;;
+		-s|--splash)
+			splash="$2"; shift
 			;;
 		-h|--help)
 			show_add_usage
@@ -147,6 +154,9 @@ add_subcommand()
 	fi
 	if [ "$#" -gt 4 ]; then
 		show_add_usage_fail "too many arguments: \"$1\""
+	fi
+	if [ -n "$splash" ] && ! [ -f "$splash" ]; then
+		show_add_usage_fail "splash file not found: \"$splash\""
 	fi
 
 	prepare
@@ -191,6 +201,13 @@ add_subcommand()
 	efi /$kernel
 	options $options
 	EOF
+
+	# Add an optional splash image entry if the image file exists
+	if [ -n "$splash" ]; then
+		cp $verbose -- "$splash" "$entries_dir"
+		printf "%s\n" "splash \\loader\\entries\\${splash##*/}" \
+		>> "$entry_path"
+	fi
 
 	if [ -n "$verbose" ]; then
 		verbose "contents of \"$entry_path\":"
