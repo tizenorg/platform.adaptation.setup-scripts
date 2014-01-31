@@ -157,6 +157,17 @@ add_subcommand()
 			$force "$kernel-clone" "Clone $os_name" \
 			"$kernel" "$clone_opts"
 	fi
+
+	# Use default gummiboot-splash file
+	local splash_path="$rootdir/usr/share/gummiboot/splash.bmp"
+
+	# Add a splash entry for fastboot testing and disable fbcon
+	if [ "$boot" = "gummiboot" ] && [ -f "$splash_path" ]; then
+		splash_opts="$options fbcon=map:9"
+		setup-$boot-conf $verbose --bootdir "$bootdir" add \
+			$force --splash "$splash_path" "$kernel-splash" \
+			"Splash $os_name" "$kernel" "$splash_opts"
+	fi
 }
 
 #
@@ -259,6 +270,11 @@ remove_subcommand()
 	                     remove --force "$kernel-clone" || \
 		fatal "setup-$boot-conf failed to remove" \
 		      "entry \"$kernel-clone\""
+	# Ditto for "splash"
+	setup-$boot-conf $verbose --bootdir "$bootdir" \
+	                     remove --force "$kernel-splash" || \
+		fatal "setup-$boot-conf failed to remove" \
+		      "entry \"$kernel-splash\""
 
 	# If this is not the default kernel, we are done
 	[ "$kernel" = "$default_kernel" ] || return 0
