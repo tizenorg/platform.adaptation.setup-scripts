@@ -101,7 +101,7 @@ installerfw_restore_env()
 		        "installer framework environment: can't find" \
 			"\"$file\""
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		eval "export $line"
 	done < "$file"
 
