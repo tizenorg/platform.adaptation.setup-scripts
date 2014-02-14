@@ -80,12 +80,12 @@ installerfw_save_env()
 
 	local variables="$(printenv | eval "LC_ALL=C grep $opts")"
 
-	if [ "$(printf "%s" "$variables" | wc -l)" -eq "0" ]; then
+	if [ "$(printf "%s\n" "$variables" | wc -l)" -eq "0" ]; then
 		__fatal "no installer framework environment variables" \
 		        "found, nothing to save"
 	fi
 
-	printf "%s" "$variables" | LC_ALL=C sed -n -e \
+	printf "%s\n" "$variables" | LC_ALL=C sed -n -e \
 		"s/\(^INSTALLERFW_[^=]\+\)=\(.*\)/\1=\"\2\"/p" > "$file"
 	__verbose "installerfw_save_env(): saved installer framework" \
 	          "environment in \"$file\""
