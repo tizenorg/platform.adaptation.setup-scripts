@@ -1,3 +1,7 @@
+* Fri Feb 14 2014 Artem Bityutskiy <artem.bityutskiy@linux.intel.com> 1.0
+- Fix TIVI-2652 - now a long chain of cloning the OS works fine and does not
+  fail at the third step.
+
 * Fri Jan 31 2014 Artem Bityutskiy <artem.bityutskiy@linux.intel.com> 1.0
 - Generate kernel entries for debugging the splash screen work. These are
   separate entries now, and only work for the gummiboot bloot-loader. Once
