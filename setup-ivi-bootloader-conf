@@ -163,7 +163,7 @@ add_subcommand()
 
 	# Add a splash entry for fastboot testing and disable fbcon
 	if [ "$boot" = "gummiboot" ] && [ -f "$splash_path" ]; then
-		splash_opts="$options fbcon=map:9"
+		splash_opts="$options i915.fastboot=1 fbcon=map:9"
 		setup-$boot-conf $verbose --bootdir "$bootdir" add \
 			$force --splash "$splash_path" "$kernel-splash" \
 			"Splash $os_name" "$kernel" "$splash_opts"
