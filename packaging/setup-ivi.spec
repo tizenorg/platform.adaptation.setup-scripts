@@ -1,6 +1,6 @@
 Name:     setup-ivi
 Version:  1.0
-Release:  1
+Release:  0
 License:  GPL-2.0
 Summary:  Various early setup programs
 Url:      http://www.tizen.org
