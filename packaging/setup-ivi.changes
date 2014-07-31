@@ -1,3 +1,8 @@
+* Thu Jul 31 2014 Mikko Ylinen <mikko.ylinen@intel.com> accepted/tizen/ivi/20140730.121044-4-g00273ab
+- setup-gummiboot-conf: Set background to black
+- Enable i915.fastboot=1 for the splash boot entry
+- packaging: minor change to set tizen as HEAD
+
 * Fri Feb 14 2014 Artem Bityutskiy <artem.bityutskiy@linux.intel.com> 1.0
 - Fix TIVI-2652 - now a long chain of cloning the OS works fine and does not
   fail at the third step.
