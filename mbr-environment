@@ -1,8 +1,8 @@
-# This file can be used for testing setup-ivi-* scripts. This file corresponds
+# This file can be used for testing setup-scripts-* scripts. This file corresponds
 # to an MBR boot image. Do the following to start debugging:
 #
 # mkdir /tmp/boot
-# touch /tmp/boot/vmlinux-3.12-x86-ivi
+# touch /tmp/boot/vmlinux-*
 # mkdir -p /tmp/usr/share/syslinux/
 # touch /tmp/usr/share/syslinux/gptmbr.bin
 # mkdir /tmp/etc

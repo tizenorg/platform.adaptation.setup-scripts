@@ -4,18 +4,18 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-PROG="setup-ivi-boot"
+PROG="setup-scripts-boot"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+PATH="/usr/share/setup-scripts:$srcdir:$PATH"
 
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 	. "$srcdir/installerfw-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
-	.  /usr/share/setup-ivi/installerfw-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
+	.  /usr/share/setup-scripts/installerfw-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -
@@ -173,12 +173,12 @@ kernels="$(ls -1 "$bootdir" | LC_ALL=C grep -- "^vmlinuz-" | sort -r)"
 	fatal "no kernels (vmlinuz-*) found in \"$bootdir\""
 
 printf "%s\n" "$kernels" | while IFS= read -r kernel; do
-	setup-ivi-bootloader-conf $verbose add --force "$kernel"
+	setup-scripts-bootloader-conf $verbose add --force "$kernel"
 done
 
 # Set the default kernel to the kernel with highest version
 newest_kernel="$(get_newest_kernel "$bootdir")"
-setup-ivi-bootloader-conf $verbose default "$newest_kernel"
+setup-scripts-bootloader-conf $verbose default "$newest_kernel"
 
 # And finally, create the /etc/fstab file
-setup-ivi-fstab $verbose --force
+setup-scripts-fstab $verbose --force

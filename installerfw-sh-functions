@@ -2,7 +2,7 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-# This file contains common functions for setup-ivi-* programs
+# This file contains common functions for setup-scripts-* programs
 
 # Own name
 __PROG="${PROG:-installerfw-sh-functions}"

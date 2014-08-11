@@ -4,18 +4,18 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-PROG="setup-ivi-fstab"
+PROG="setup-scripts-fstab"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+PATH="/usr/share/setup-scripts:$srcdir:$PATH"
 
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 	. "$srcdir/installerfw-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
-	.  /usr/share/setup-ivi/installerfw-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
+	.  /usr/share/setup-scripts/installerfw-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -
@@ -30,7 +30,7 @@ show_usage()
 	cat <<-EOF
 Usage: $PROG [options]
 
-Create the default Tizen IVI /etc/fstab file.
+Create the default Tizen /etc/fstab file.
 
 Options:
   -f, --force    re-write /etc/fstab if it exists

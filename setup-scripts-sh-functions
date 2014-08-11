@@ -2,10 +2,10 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-# This file contains common functions for setup-ivi-* programs
+# This file contains common functions for setup-scripts-* programs
 
 # Own name
-__PROG="$PROG:-setup-ivi-sh-functions"
+__PROG="$PROG:-setup-scripts-sh-functions"
 
 # Just a useful variable for the newline character(s)
 br="
