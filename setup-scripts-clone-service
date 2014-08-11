@@ -4,18 +4,18 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-PROG="setup-ivi-clone-service"
+PROG="setup-scripts-clone-service"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+PATH="/usr/share/setup-scripts:$srcdir:$PATH"
 
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 	. "$srcdir/installerfw-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
-	.  /usr/share/setup-ivi/installerfw-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
+	.  /usr/share/setup-scripts/installerfw-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -
@@ -90,15 +90,15 @@ show_usage()
 	cat <<-EOF
 Usage: $PROG [options]
 
-This program is a wrapper over the 'setup-ivi-clone' program and it is intended
+This program is a wrapper over the 'setup-scripts-clone' program and it is intended
 to be executed from a systemd service when the system boots up.
 
 By default, this program finds the first non-removable device in the system and
-installs the OS there. However, if the 'ivi-clone-target=<devnode>' kernel boot
+installs the OS there. However, if the 'scripts-clone-target=<devnode>' kernel boot
 option is present (see "/proc/cmdline"), then this program installs the OS to
 the disk represented by "<devnode>" (e.g., "/dev/sda").
 
-The 'ivi-clone-target=autodetect' kernel option causes the default behaviour.
+The 'scripts-clone-target=autodetect' kernel option causes the default behaviour.
 
 Options:
   -f, --force    do not ask for confirmation, just proceed with cloning the OS
@@ -153,7 +153,7 @@ done
 # last on the console.
 sleep 2
 
-devnode="$(sed -n -e "s/^.*ivi-clone-target=\([^ ]\+\).*$/\1/p" /proc/cmdline)"
+devnode="$(sed -n -e "s/^.*scripts-clone-target=\([^ ]\+\).*$/\1/p" /proc/cmdline)"
 if [ -z "$devnode" ] || [ "$devnode" = "autodetect" ]; then
 	devnode="$(find_an_internal_disk)"
 
@@ -173,8 +173,8 @@ else
 	disk_info="$devnode"
 fi
 
-printf "%s\n" "cloning the Tizen IVI OS to \"$disk_info\""
+printf "%s\n" "cloning the Tizen OS to \"$disk_info\""
 [ -z "$force" ] && get_confirmation
 printf "%s\n" "this may take a while, be patient"
 
-setup-ivi-clone $verbose "$devnode" || fatal "failed to clone to $devnode"
+setup-scripts-clone $verbose "$devnode" || fatal "failed to clone to $devnode"

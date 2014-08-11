@@ -1,9 +1,9 @@
-# This file can be used for testing setup-ivi-* scripts. This file corresponds
+# This file can be used for testing setup-scripts-* scripts. This file corresponds
 # to an EFI boot image (boot partition has the EFS type GUID). Do the following
 # to start debugging
 #
 # mkdir /tmp/boot
-# touch /tmp/boot/vmlinuz-3.12-x86-ivi
+# touch /tmp/boot/vmlinuz-*
 # mkdir -p /tmp/usr/lib/gummiboot
 # touch /tmp/usr/lib/gummiboot/gummibootia32.efi
 # mkdir /tmp/etc

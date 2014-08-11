@@ -1,9 +1,9 @@
 [Unit]
-Description=Cloning of the Tizen IVI OS to a non-removable media
+Description=Cloning of the Tizen OS to a non-removable media
 
 [Service]
 Type=oneshot
 StandardOutput=journal+console
 StandardInput=tty
-ExecStart=/usr/sbin/setup-ivi-clone-service
+ExecStart=/usr/sbin/setup-scripts-clone-service
 ExecStartPost=/usr/sbin/reboot

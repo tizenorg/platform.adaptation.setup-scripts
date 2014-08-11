@@ -8,10 +8,10 @@ PROG="setup-gummiboot-conf"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -

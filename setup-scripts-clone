@@ -4,17 +4,17 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-PROG="setup-ivi-clone"
+PROG="setup-scripts-clone"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
 
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 	. "$srcdir/installerfw-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
-	.  /usr/share/setup-ivi/installerfw-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
+	.  /usr/share/setup-scripts/installerfw-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -
@@ -380,7 +380,7 @@ amend_installerfw_environment()
 # Check if the block device is mounted
 # TODO: the much better way to do this is to use the open(2) "O_EXCL" flag
 # which has special meaning for block devices. This would need to write a
-# C helper program, something like setup-ivi-open-helper.
+# C helper program, something like setup-scripts-open-helper.
 is_mounted()
 {
 	local devnode="$(esc_regexp "$1")"
@@ -393,7 +393,7 @@ show_usage()
 	cat <<-EOF
 Usage: $PROG [options] <dstdisk>
 
-Clone a running Tizen IVI system to a different disk. The mandatory argument
+Clone a running Tizen system to a different disk. The mandatory argument
 "<dstdisk>" is the device node name to clone to (e.g., /dev/sda). Be careful,
 this program will destroy all the "<dstdisk>" data!
 
@@ -404,9 +404,9 @@ The program roughly works like this.
 2. Partitions "<dstdisk>" according to "/etc/installerfw-environment" (the last
    partition gets re-sized to consume all the space on "<dstdisk>").
 3. Formats all the newly created partitions on "<dstdisk>".
-4. Copies all the data from the disk Tizen IVI currently runs from to
+4. Copies all the data from the disk Tizen currently runs from to
    "<dstdisk>", partition-by-partition.
-5. Configures the cloned system on "<dstdisk>" by "setup-ivi-boot".
+5. Configures the cloned system on "<dstdisk>" by "setup-scripts-boot".
 6. Reboots the system.
 
 Options:
@@ -492,7 +492,7 @@ if [ "$ptable_format" != "gpt" ]; then
 	fatal "partition table type \"$ptable_format\" is not supported"
 fi
 
-# Disable the Tizen IVI automount agent, otherwise it may start mounting the
+# Disable the Tizen automount agent, otherwise it may start mounting the
 # $dstdisk partitions that we are going to create
 automount_status="$(systemctl --user is-active udisks-automount-agent 2>/dev/null ||:)"
 if [ "$automount_status" = "active" ]; then
@@ -534,7 +534,7 @@ message "finished copying, configuring the cloned OS"
 amend_installerfw_environment
 
 # Configure the target system
-$srcdir/setup-ivi-boot $verbose
+$srcdir/setup-scripts-boot $verbose
 
 # Note, unmount happens in 'cleanup_handler()'
 message "done, synchronizing the data"

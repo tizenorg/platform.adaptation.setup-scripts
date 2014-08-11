@@ -4,18 +4,18 @@
 # Author: Artem Bityutskiy
 # License: GPLv2
 
-PROG="setup-ivi-bootloader-conf"
+PROG="setup-scripts-bootloader-conf"
 VER="1.0"
 
 srcdir="$(readlink -ev -- ${0%/*})"
-PATH="/usr/share/setup-ivi:$srcdir:$PATH"
+PATH="/usr/share/setup-scripts:$srcdir:$PATH"
 
-if [ -f "$srcdir/setup-ivi-sh-functions" ]; then
-	. "$srcdir/setup-ivi-sh-functions"
+if [ -f "$srcdir/setup-scripts-sh-functions" ]; then
+	. "$srcdir/setup-scripts-sh-functions"
 	. "$srcdir/installerfw-sh-functions"
 else
-	.  /usr/share/setup-ivi/setup-ivi-sh-functions
-	.  /usr/share/setup-ivi/installerfw-sh-functions
+	.  /usr/share/setup-scripts/setup-scripts-sh-functions
+	.  /usr/share/setup-scripts/installerfw-sh-functions
 fi
 
 # This is a small trick which I use to make sure my scripts are portable -
@@ -150,9 +150,9 @@ add_subcommand()
 
 	# Add the clone bootloader entry, but only if the cloning tool is
 	# installed
-	if [ -f "$rootdir/usr/sbin/setup-ivi-clone" ]; then
-		clone_opts="$options systemd.unit=ivi-clone.service"
-		clone_opts="$clone_opts ivi-clone-target=autodetect"
+	if [ -f "$rootdir/usr/sbin/setup-scripts-clone" ]; then
+		clone_opts="$options systemd.unit=scripts-clone.service"
+		clone_opts="$clone_opts scripts-clone-target=autodetect"
 		setup-$boot-conf $verbose --bootdir "$bootdir" add \
 			$force "$kernel-clone" "Clone $os_name" \
 			"$kernel" "$clone_opts"
@@ -380,7 +380,7 @@ show_usage()
 Usage: $PROG [options] <subcommand> [options] <arguments>
 
 This program adds or removes a kernel to/from the bootloader configuration
-file(s). This is a Tizen IVI-specific program and it currently supports only 2
+file(s). This is a Tizen specific program and it currently supports only 2
 bootloader types - extlinux and gummiboot. Each new kernel gets 2 boot menu
 entries - the default and verbose, and both of these are removed by the
 "remove" subcommand.
