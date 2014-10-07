@@ -31,21 +31,36 @@ install_gummiboot()
 
 	local installdir="$bootdir/EFI/boot"
 	local gummiboot_path="$(installerfw_mnt_prefix "/usr/lib/gummiboot")"
+	local src32="$gummiboot_path/gummibootia32.efi"
+	local src64="$gummiboot_path/gummibootia64.efi"
+	local src=""
+	local dst=""
+
+	# Auto start default to fs0 if not overide by env var
+	local efi_bootdir="fs0:"
+	[ "" = "$SETUP_SCRIPTS_BOOTFS" ] || efi_bootdir="${SETUP_SCRIPTS_BOOTFS}"
 
 	# Make sure gummiboot is installed in the system
-	if ! ([ -f $gummiboot_path/gummibootia32.efi ] || \
-	      [ -f $gummiboot_path/gummibootx64.efi ]); then
+	if ! ([ -f "$src32" ] || [ -f "$src64" ]); then
 		fatal "\"$gummiboot_path/gummiboot*.efi\" files not found!"
 	fi
 
 	# Install gummiboot
 	mkdir -p $verbose -- "$installdir" >&2
-	[ -f "$gummiboot_path/gummibootia32.efi" ] && \
-		cp $verbose "$gummiboot_path/gummibootia32.efi" \
-		            "$installdir/bootia32.efi" >&2
-	[ -f "$gummiboot_path/gummibootx64.efi" ] && \
-		cp $verbose "$gummiboot_path/gummibootx64.efi" \
-		            "$installdir/bootx64.efi"
+
+	if [ -f "$src64" ] ; then
+	    src="$src64"
+	    dst="$installdir/bootx64.efi"
+	else if [ -f "$src32" ] ; then
+	    src="$src32"
+	    dst="$installdir/bootia32.efi"
+	fi
+
+	if [ -f "$src" ] ; then
+	    local basename=$(basename -- "$dst")
+	    cp $verbose "$src" "$dst" 2>&2
+	    echo "${efi_bootdir}\\EFI\\boot\\$basename" > "${bootdir}/startup.nsh"
+	fi
 
 	verbose "installed gummiboot to $bootdir"
 }
