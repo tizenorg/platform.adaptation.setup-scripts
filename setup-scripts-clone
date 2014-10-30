@@ -319,7 +319,10 @@ copy_the_data()
 		verbose "copy partition $pnum:" \
 		        "\"$src_mntdir\" -> \"$dst_mntdir\""
 
+		local context=$(cat "/proc/$$/attr/current")
+		echo -n '_' > "/proc/$$/attr/current"
 		rsync  -WaHXSh --exclude "${tmpdir}" "$src_mntdir/" "$dst_mntdir/"
+		echo -n "$context" > "/proc/$$/attr/current"
 
 		pnum="$(($pnum + 1))"
 	done
