@@ -211,7 +211,7 @@ add_subcommand()
 
 	local block="label $label
 	menu label $title ($kernel_version)
-	linux /$kernel
+	linux ../$kernel
 	append $options"
 
 	printf "\n%s\n" "$block" >> "$conf_file"

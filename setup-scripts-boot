@@ -80,6 +80,10 @@ install_extlinux()
 	# Get device node name for the boot partition
 	local boot_devnode
 	installerfw_get_part_info "/boot" "DEVNODE_NOW" "boot_devnode"
+	if [ ! -n "$boot_devnode" ] ; then
+	    verbose "No /boot part, fallback to /"
+		installerfw_get_part_info "/" "DEVNODE_NOW" "boot_devnode"
+	fi
 	[ -n "$boot_devnode" ] || \
 		fatal "cannot find device node of the boot disk, probably" \
 		      "INSTALLERFW_PARTx_DEVNODE_NOW environment" \
@@ -97,6 +101,10 @@ install_extlinux()
 	# Get device node name for the boot disk
 	local mbr_devnode
 	installerfw_get_part_info "/boot" "DISK_DEVNODE_NOW" "mbr_devnode"
+	if [ !  -n "$mbr_devnode" ] ; then
+	    verbose "No /boot disk, fallback to /"
+	    installerfw_get_part_info "/" "DISK_DEVNODE_NOW" "mbr_devnode"
+	fi
 	[ -n "$mbr_devnode" ] || \
 		fatal "cannot find device node of the boot disk, probably" \
 		      "INSTALLERFW_PARTx_DISK_DEVNODE_NOW environment" \
