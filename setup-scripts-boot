@@ -121,6 +121,52 @@ install_extlinux()
 	verbose "installed extlinux to $bootdir"
 }
 
+install_uboot()
+{
+    boot_part="/boot"
+    ls "${boot_part}" || exit 1
+    # repart part
+    # copy files to offset
+
+
+    # Get device node name for the boot partition
+    local boot_devnode
+    installerfw_get_part_info "/boot" "DEVNODE_NOW" "boot_devnode"
+    if [ ! -n "$boot_devnode" ] ; then
+	verbose "No /boot part, fallback to /"
+	installerfw_get_part_info "/" "DEVNODE_NOW" "boot_devnode"
+    fi
+    [ -n "$boot_devnode" ] || \
+	fatal "cannot find device node of the boot disk, probably" \
+	"INSTALLERFW_PARTx_DEVNODE_NOW environment" \
+	"variable is not defined"
+    
+
+    # Get device node name for the boot disk
+    local mbr_devnode
+    installerfw_get_part_info "/boot" "DISK_DEVNODE_NOW" "mbr_devnode"
+    if [ !  -n "$mbr_devnode" ] ; then
+	verbose "No /boot disk, fallback to /"
+	installerfw_get_part_info "/" "DISK_DEVNODE_NOW" "mbr_devnode"
+    fi
+	[ -n "$mbr_devnode" ] || \
+	    fatal "cannot find device node of the boot disk, probably" \
+           "INSTALLERFW_PARTx_DISK_DEVNODE_NOW environment" \
+            "variable is not defined"
+
+    file="/usr/lib/u-boot-hardkernel.sh" # TODO place it in setup-scripts
+    [ ! -r "${file}" ] || $SHELL "${file}" "${mbr_devnode}"
+}
+
+install_msdos_boot_system()
+{
+    if [ -d "/usr/share/syslinux" ] ; then
+	install_syslinux
+    else
+	install_uboot
+    fi
+}
+
 show_usage()
 {
 	cat <<-EOF
@@ -185,7 +231,7 @@ get_os_name "os_name"
 if installerfw_is_efi_boot_system; then
 	install_gummiboot
 else
-	install_extlinux
+	install_msdos_boot_system
 fi
 
 # Create bootloader entries for each kernel

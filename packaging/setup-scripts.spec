@@ -29,6 +29,12 @@ Provides: virtual-%{name}-bootloader
 Requires: %{name} = %{version}-%{release}
 Requires: syslinux-extlinux
 
+%package -n %{name}-u-boot
+Summary:  Command-line tool for tweaking u-boot configuration
+Provides: virtual-%{name}-bootloader
+Requires: %{name} = %{version}-%{release}
+Requires: u-boot
+
 %package -n %{name}-clone
 Summary:  A tool for cloning a Tizen system
 Provides: setup-ivi-clone = %{version}-%{release}
@@ -55,6 +61,9 @@ configuration files.
 %description -n %{name}-extlinux
 This package provides a command-line tool for changing the extlinux bootloader
 configuration file.
+
+%description -n %{name}-u-boot
+TODO
 
 %description -n %{name}-clone
 This package provides a command line tool for cloning a Tizen system to a
@@ -111,6 +120,9 @@ rm -rf %{buildroot}
 %files -n %{name}-extlinux
 %defattr(-,root,root)
 %{_sbindir}/setup-extlinux-conf
+
+%files -n %{name}-u-boot
+%defattr(-,root,root)
 
 %files -n setup-scripts-clone
 %defattr(-,root,root)
