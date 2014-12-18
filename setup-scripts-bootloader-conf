@@ -171,7 +171,7 @@ add_subcommand()
 		setup-$boot-conf $verbose --bootdir "$bootdir" add \
 			$force --splash "$splash_path" "$kernel-splash-dp" \
 			"Splash DP $os_name" "$kernel" "$splash_opts_dp"
-		splash_opts_hdmi="$splash_opts video=DP-1:d"
+		splash_opts_hdmi="$splash_opts video=DP-1:d video=VGA-1:d"
 		setup-$boot-conf $verbose --bootdir "$bootdir" add \
 			$force --splash "$splash_path" "$kernel-splash-hdmi" \
 			"Splash HDMI $os_name" "$kernel" "$splash_opts_hdmi"
