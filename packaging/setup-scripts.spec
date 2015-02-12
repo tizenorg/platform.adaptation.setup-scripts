@@ -86,6 +86,7 @@ install -m755 setup-gummiboot-conf %{buildroot}/%{_sbindir}
 install -m755 setup-extlinux-conf %{buildroot}/%{_sbindir}
 install -m644 setup-scripts-sh-functions %{buildroot}/%{_prefix}/share/setup-scripts
 install -m644 installerfw-sh-functions %{buildroot}/%{_prefix}/share/setup-scripts
+install -m755 setup-scripts-fstab-by-label %{buildroot}/%{_sbindir}
 
 ###
 ### CLEAN
@@ -103,6 +104,7 @@ rm -rf %{buildroot}
 %{_sbindir}/setup-scripts-bootloader-conf
 %{_prefix}/share/setup-scripts/setup-scripts-sh-functions
 %{_prefix}/share/setup-scripts/installerfw-sh-functions
+%{_sbindir}/setup-scripts-fstab-by-label
 
 %files -n %{name}-gummiboot
 %defattr(-,root,root)
